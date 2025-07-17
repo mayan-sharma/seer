@@ -2,10 +2,10 @@ use crate::ui::App;
 use crate::monitor::SystemMonitor;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, Borders, Cell, Gauge, Paragraph, Row, Table,
+        Block, Borders, Cell, Gauge, Paragraph, Row, Table, BorderType,
     },
     Frame,
 };
@@ -27,21 +27,58 @@ impl App {
     }
 
     fn render_header(&self, f: &mut Frame, area: Rect) {
-        let title = if let Some(metrics) = &self.system_metrics {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(33), Constraint::Percentage(34), Constraint::Percentage(33)])
+            .split(area);
+
+        if let Some(metrics) = &self.system_metrics {
             let uptime = SystemMonitor::format_uptime(metrics.uptime);
-            format!("Seer - System Monitor | Uptime: {} | Load: {:.2} {:.2} {:.2}", 
-                   uptime, metrics.load_average.one_min, 
-                   metrics.load_average.five_min, metrics.load_average.fifteen_min)
+            
+            // Left section - App name and version
+            let app_info = Paragraph::new("👁️  Seer v0.1.0")
+                .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+                .alignment(Alignment::Left)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(app_info, chunks[0]);
+
+            // Center section - System status
+            let system_status = format!("⏱️  Uptime: {}", uptime);
+            let status_widget = Paragraph::new(system_status)
+                .style(Style::default().fg(self.theme_colors.info))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(status_widget, chunks[1]);
+
+            // Right section - Load average
+            let load_avg = format!("📊 Load: {:.2} {:.2} {:.2}", 
+                                 metrics.load_average.one_min, 
+                                 metrics.load_average.five_min, 
+                                 metrics.load_average.fifteen_min);
+            let load_widget = Paragraph::new(load_avg)
+                .style(Style::default().fg(self.theme_colors.accent))
+                .alignment(Alignment::Right)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(load_widget, chunks[2]);
         } else {
-            "Seer - System Monitor | Loading...".to_string()
-        };
-
-        let header = Paragraph::new(title)
-            .style(Style::default().fg(Color::Cyan))
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL));
-
-        f.render_widget(header, area);
+            let loading = Paragraph::new("👁️  Seer - System Monitor | Loading...")
+                .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(loading, area);
+        }
     }
 
     fn render_main_content(&mut self, f: &mut Frame, area: Rect) {
@@ -75,7 +112,11 @@ impl App {
             let color = self.get_threshold_color(cpu_usage, self.config.threshold_cpu);
 
             let gauge = Gauge::default()
-                .block(Block::default().title("CPU Usage").borders(Borders::ALL))
+                .block(Block::default()
+                    .title("🖥️  CPU Usage")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
                 .gauge_style(Style::default().fg(color))
                 .percent(cpu_usage as u16)
                 .label(format!("{:.1}%", cpu_usage));
@@ -95,13 +136,14 @@ impl App {
                     .enumerate()
                     .take((core_area.height as usize).saturating_sub(1))
                     .map(|(i, usage)| {
-                        let bar = "█".repeat((usage / 100.0 * 10.0) as usize);
-                        let spaces = " ".repeat(10 - bar.len());
+                        let bar_length = (usage / 100.0 * 12.0) as usize;
+                        let bar = "▰".repeat(bar_length);
+                        let empty_bar = "▱".repeat(12 - bar_length);
                         Line::from(vec![
-                            Span::styled(format!("Core {}: ", i), Style::default().fg(Color::Gray)),
+                            Span::styled(format!("Core {:2}: ", i), Style::default().fg(self.theme_colors.muted)),
                             Span::styled(bar, Style::default().fg(color)),
-                            Span::raw(spaces),
-                            Span::styled(format!(" {:.1}%", usage), Style::default().fg(Color::White)),
+                            Span::styled(empty_bar, Style::default().fg(self.theme_colors.muted)),
+                            Span::styled(format!(" {:.1}%", usage), Style::default().fg(self.theme_colors.foreground)),
                         ])
                     })
                     .collect();
@@ -111,8 +153,12 @@ impl App {
             }
         } else {
             let gauge = Gauge::default()
-                .block(Block::default().title("CPU Usage").borders(Borders::ALL))
-                .gauge_style(Style::default().fg(Color::Gray))
+                .block(Block::default()
+                    .title("🖥️  CPU Usage")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
+                .gauge_style(Style::default().fg(self.theme_colors.muted))
                 .percent(0)
                 .label("Loading...");
 
@@ -129,7 +175,11 @@ impl App {
 
             let ram_color = self.get_threshold_color(metrics.memory.ram_percentage, self.config.threshold_memory);
             let ram_gauge = Gauge::default()
-                .block(Block::default().title("RAM Usage").borders(Borders::ALL))
+                .block(Block::default()
+                    .title("🧠 RAM Usage")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
                 .gauge_style(Style::default().fg(ram_color))
                 .percent(metrics.memory.ram_percentage as u16)
                 .label(format!(
@@ -144,7 +194,11 @@ impl App {
             if metrics.memory.total_swap > 0 {
                 let swap_color = self.get_threshold_color(metrics.memory.swap_percentage, self.config.threshold_memory);
                 let swap_gauge = Gauge::default()
-                    .block(Block::default().title("Swap Usage").borders(Borders::ALL))
+                    .block(Block::default()
+                        .title("💾 Swap Usage")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().fg(self.theme_colors.border)))
                     .gauge_style(Style::default().fg(swap_color))
                     .percent(metrics.memory.swap_percentage as u16)
                     .label(format!(
@@ -156,16 +210,25 @@ impl App {
 
                 f.render_widget(swap_gauge, chunks[1]);
             } else {
-                let no_swap = Paragraph::new("No swap configured")
-                    .block(Block::default().title("Swap Usage").borders(Borders::ALL))
-                    .style(Style::default().fg(Color::Gray));
+                let no_swap = Paragraph::new("💾 No swap configured")
+                    .block(Block::default()
+                        .title("💾 Swap Usage")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().fg(self.theme_colors.border)))
+                    .style(Style::default().fg(self.theme_colors.muted))
+                    .alignment(Alignment::Center);
 
                 f.render_widget(no_swap, chunks[1]);
             }
         } else {
             let gauge = Gauge::default()
-                .block(Block::default().title("Memory Usage").borders(Borders::ALL))
-                .gauge_style(Style::default().fg(Color::Gray))
+                .block(Block::default()
+                    .title("🧠 Memory Usage")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
+                .gauge_style(Style::default().fg(self.theme_colors.muted))
                 .percent(0)
                 .label("Loading...");
 
@@ -190,24 +253,26 @@ impl App {
 
             let zombie_count = processes.iter().filter(|p| p.is_zombie).count();
             
+            let sort_indicator = match self.sort_by {
+                crate::ui::SortBy::Cpu => "🔥 CPU",
+                crate::ui::SortBy::Memory => "🧠 Memory",
+                crate::ui::SortBy::Pid => "🔢 PID",
+                crate::ui::SortBy::Name => "📛 Name",
+            };
+
             let title = format!(
-                "Top Processes {} - {} total, {} zombies {} | Sort: {} | q:quit r:refresh p:processes c:cpu m:memory",
+                "🔍 Top Processes {} - {} total, {} zombies {} | Sort: {}",
                 if self.show_zombies_highlighted { "(⚠️ Zombies highlighted)" } else { "" },
                 processes.len(),
                 zombie_count,
                 if zombie_count > 0 { "⚠️" } else { "" },
-                match self.sort_by {
-                    crate::ui::SortBy::Cpu => "CPU",
-                    crate::ui::SortBy::Memory => "Memory",
-                    crate::ui::SortBy::Pid => "PID",
-                    crate::ui::SortBy::Name => "Name",
-                }
+                sort_indicator
             );
 
-            let header_cells = ["PID", "Name", "CPU%", "MEM%", "Memory", "User", "Status"]
+            let header_cells = ["🆔 PID", "📛 Name", "🔥 CPU%", "🧠 MEM%", "💾 Memory", "👤 User", "📊 Status"]
                 .iter()
-                .map(|h| Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD)));
-            let header = Row::new(header_cells).style(Style::default().bg(Color::Blue));
+                .map(|h| Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD).fg(self.theme_colors.foreground)));
+            let header = Row::new(header_cells).style(Style::default().bg(self.theme_colors.secondary));
 
             let rows: Vec<Row> = processes
                 .iter()
@@ -215,11 +280,11 @@ impl App {
                 .enumerate()
                 .map(|(i, process)| {
                     let style = if i == self.selected_process_index {
-                        Style::default().bg(Color::DarkGray)
+                        Style::default().bg(self.theme_colors.selection).add_modifier(Modifier::BOLD)
                     } else if process.is_zombie && self.show_zombies_highlighted {
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                        Style::default().fg(self.theme_colors.error).add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default()
+                        Style::default().fg(self.theme_colors.foreground)
                     };
 
                     let status_display = if process.is_zombie {
@@ -228,11 +293,27 @@ impl App {
                         process.status.as_str().to_string()
                     };
 
+                    let cpu_color = if process.cpu_usage > 80.0 {
+                        self.theme_colors.error
+                    } else if process.cpu_usage > 50.0 {
+                        self.theme_colors.warning
+                    } else {
+                        self.theme_colors.foreground
+                    };
+
+                    let memory_color = if process.memory_percentage > 80.0 {
+                        self.theme_colors.error
+                    } else if process.memory_percentage > 50.0 {
+                        self.theme_colors.warning
+                    } else {
+                        self.theme_colors.foreground
+                    };
+
                     Row::new(vec![
                         Cell::from(process.pid.to_string()),
                         Cell::from(process.name.clone()),
-                        Cell::from(format!("{:.1}", process.cpu_usage)),
-                        Cell::from(format!("{:.1}", process.memory_percentage)),
+                        Cell::from(format!("{:.1}", process.cpu_usage)).style(Style::default().fg(cpu_color)),
+                        Cell::from(format!("{:.1}", process.memory_percentage)).style(Style::default().fg(memory_color)),
                         Cell::from(SystemMonitor::format_bytes(process.memory_usage)),
                         Cell::from(process.user.clone()),
                         Cell::from(status_display),
@@ -242,12 +323,16 @@ impl App {
 
             let table = Table::new(rows)
                 .header(header)
-                .block(Block::default().borders(Borders::ALL).title(title))
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .title(title)
+                    .style(Style::default().fg(self.theme_colors.border)))
                 .widths(&[
                     Constraint::Length(8),   // PID
                     Constraint::Min(15),     // Name
-                    Constraint::Length(6),   // CPU%
-                    Constraint::Length(6),   // MEM%
+                    Constraint::Length(8),   // CPU%
+                    Constraint::Length(8),   // MEM%
                     Constraint::Length(10),  // Memory
                     Constraint::Length(10),  // User
                     Constraint::Min(10),     // Status
@@ -255,9 +340,14 @@ impl App {
 
             f.render_widget(table, area);
         } else {
-            let placeholder = Paragraph::new("Loading process information...")
-                .block(Block::default().title("Processes").borders(Borders::ALL))
-                .style(Style::default().fg(Color::Gray));
+            let placeholder = Paragraph::new("🔄 Loading process information...")
+                .block(Block::default()
+                    .title("🔍 Processes")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
+                .style(Style::default().fg(self.theme_colors.muted))
+                .alignment(Alignment::Center);
 
             f.render_widget(placeholder, area);
         }
@@ -272,12 +362,12 @@ impl App {
                 .collect();
 
             let summary_text = if active_interfaces.is_empty() {
-                "No active network interfaces".to_string()
+                "🔌 No active network interfaces".to_string()
             } else {
                 let total_rx = SystemMonitor::format_bytes(metrics.network.total_bytes_received);
                 let total_tx = SystemMonitor::format_bytes(metrics.network.total_bytes_transmitted);
                 format!(
-                    "Active interfaces: {} | Total: ↓ {} ↑ {} | Press 'n' for detailed network view",
+                    "🌐 Active: {} | Total: 📥 {} 📤 {} | Press 'n' for details",
                     active_interfaces.join(", "),
                     total_rx,
                     total_tx
@@ -285,26 +375,50 @@ impl App {
             };
 
             let paragraph = Paragraph::new(summary_text)
-                .block(Block::default().title("Network Summary").borders(Borders::ALL))
-                .style(Style::default().fg(Color::Cyan));
+                .block(Block::default()
+                    .title("🌐 Network Summary")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
+                .style(Style::default().fg(self.theme_colors.info))
+                .alignment(Alignment::Center);
 
             f.render_widget(paragraph, area);
         } else {
-            let placeholder = Paragraph::new("Loading network information...")
-                .block(Block::default().title("Network Summary").borders(Borders::ALL))
-                .style(Style::default().fg(Color::Gray));
+            let placeholder = Paragraph::new("🔄 Loading network information...")
+                .block(Block::default()
+                    .title("🌐 Network Summary")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
+                .style(Style::default().fg(self.theme_colors.muted))
+                .alignment(Alignment::Center);
 
             f.render_widget(placeholder, area);
         }
     }
 
     fn render_footer(&self, f: &mut Frame, area: Rect) {
-        let footer_text = "q:Quit | r:Refresh | p:Processes | n:Network | d:Disk | z:Toggle Zombies | ↑↓:Navigate | c:Sort CPU | m:Sort Memory | k:Kill";
+        let theme_name = match self.theme {
+            crate::ui::ColorTheme::Default => "Default",
+            crate::ui::ColorTheme::Dark => "Dark",
+            crate::ui::ColorTheme::Gruvbox => "Gruvbox",
+            crate::ui::ColorTheme::Dracula => "Dracula",
+            crate::ui::ColorTheme::Solarized => "Solarized",
+        };
+
+        let footer_text = format!(
+            "🎯 q:Quit | 🔄 r:Refresh | 📊 p:Processes | 🌐 n:Network | 💾 d:Disk | 🖥️ i:SysInfo | 🎨 t:Theme({}) | 💡 h:Help | ⚠️ z:Zombies | ⬆️⬇️:Navigate | 🔥 c:CPU | 🧠 m:Memory | ⚡ k:Kill",
+            theme_name
+        );
         
         let footer = Paragraph::new(footer_text)
-            .style(Style::default().fg(Color::Yellow))
+            .style(Style::default().fg(self.theme_colors.warning))
             .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL));
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
 
         f.render_widget(footer, area);
     }

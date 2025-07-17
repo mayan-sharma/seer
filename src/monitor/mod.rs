@@ -4,7 +4,7 @@ pub mod network;
 pub mod storage;
 
 use anyhow::Result;
-use sysinfo::System;
+use sysinfo::{System, Networks, Disks};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
@@ -52,6 +52,8 @@ pub struct LoadAverage {
 
 pub struct SystemMonitor {
     system: System,
+    networks: Networks,
+    disks: Disks,
     previous_network_data: HashMap<String, (u64, u64)>,
 }
 
@@ -62,12 +64,19 @@ impl SystemMonitor {
         
         Self {
             system,
+            networks: Networks::new_with_refreshed_list(),
+            disks: Disks::new_with_refreshed_list(),
             previous_network_data: HashMap::new(),
         }
     }
 
     pub async fn update(&mut self) -> Result<()> {
         self.system.refresh_all();
+        self.networks.refresh_list();
+        self.networks.refresh();
+        self.disks.refresh_list();
+        self.disks.refresh();
+        self.update_network_data();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         Ok(())
     }
@@ -139,5 +148,22 @@ impl SystemMonitor {
     fn get_boot_time(&self) -> DateTime<Utc> {
         let boot_time = System::boot_time();
         DateTime::from_timestamp(boot_time as i64, 0).unwrap_or_else(Utc::now)
+    }
+
+    pub fn format_bytes(bytes: u64) -> String {
+        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+        let mut size = bytes as f64;
+        let mut unit_index = 0;
+
+        while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+            size /= 1024.0;
+            unit_index += 1;
+        }
+
+        if unit_index == 0 {
+            format!("{} {}", bytes, UNITS[unit_index])
+        } else {
+            format!("{:.1} {}", size, UNITS[unit_index])
+        }
     }
 }

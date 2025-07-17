@@ -1,6 +1,5 @@
 // use sysinfo::NetworkExt; // Not needed in newer versions
 use crate::monitor::SystemMonitor;
-// use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct NetworkMetrics {
@@ -44,25 +43,44 @@ pub struct ListeningPort {
 
 impl SystemMonitor {
     pub fn get_network_metrics(&self) -> NetworkMetrics {
-        // Placeholder implementation - sysinfo network monitoring may need different approach
-        let interfaces = vec![
-            NetworkInterface {
-                name: "eth0".to_string(),
-                bytes_received: 1024000,
-                bytes_transmitted: 512000,
-                packets_received: 1000,
-                packets_transmitted: 800,
-                bytes_received_per_sec: 1024.0,
-                bytes_transmitted_per_sec: 512.0,
-                is_up: true,
-            }
-        ];
+        let mut interfaces = Vec::new();
+        let mut total_bytes_received = 0;
+        let mut total_bytes_transmitted = 0;
+        let mut total_packets_received = 0;
+        let mut total_packets_transmitted = 0;
+
+        // Get network interfaces from sysinfo
+        for (interface_name, network_data) in &self.networks {
+            let (rx_rate, tx_rate) = self.calculate_network_rates(
+                interface_name,
+                network_data.total_received(),
+                network_data.total_transmitted(),
+            );
+
+            let interface = NetworkInterface {
+                name: interface_name.to_string(),
+                bytes_received: network_data.total_received(),
+                bytes_transmitted: network_data.total_transmitted(),
+                packets_received: network_data.total_packets_received(),
+                packets_transmitted: network_data.total_packets_transmitted(),
+                bytes_received_per_sec: rx_rate,
+                bytes_transmitted_per_sec: tx_rate,
+                is_up: network_data.total_received() > 0 || network_data.total_transmitted() > 0,
+            };
+
+            total_bytes_received += interface.bytes_received;
+            total_bytes_transmitted += interface.bytes_transmitted;
+            total_packets_received += interface.packets_received;
+            total_packets_transmitted += interface.packets_transmitted;
+
+            interfaces.push(interface);
+        }
 
         NetworkMetrics {
-            total_bytes_received: 1024000,
-            total_bytes_transmitted: 512000,
-            total_packets_received: 1000,
-            total_packets_transmitted: 800,
+            total_bytes_received,
+            total_bytes_transmitted,
+            total_packets_received,
+            total_packets_transmitted,
             interfaces,
         }
     }
@@ -78,11 +96,13 @@ impl SystemMonitor {
     }
 
     pub fn update_network_data(&mut self) {
-        // Placeholder - update network data
-        self.previous_network_data.insert(
-            "eth0".to_string(),
-            (1024000, 512000),
-        );
+        // Update previous network data for rate calculation
+        for (interface_name, network_data) in &self.networks {
+            self.previous_network_data.insert(
+                interface_name.to_string(),
+                (network_data.total_received(), network_data.total_transmitted()),
+            );
+        }
     }
 
     pub fn get_listening_ports(&self) -> Vec<ListeningPort> {

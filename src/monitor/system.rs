@@ -36,7 +36,6 @@ impl SystemMonitor {
 
     #[cfg(target_os = "linux")]
     fn read_linux_cpu_temperature(&self) -> Option<f32> {
-        use std::fs;
         use std::path::Path;
 
         let thermal_zones = [

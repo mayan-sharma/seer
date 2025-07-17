@@ -23,19 +23,45 @@ pub struct DiskIoStats {
 
 impl SystemMonitor {
     pub fn get_storage_info(&self) -> Vec<DiskInfo> {
-        // Placeholder implementation - disk monitoring may need different approach
-        vec![
-            DiskInfo {
-                name: "/dev/sda1".to_string(),
-                mount_point: "/".to_string(),
-                file_system: "ext4".to_string(),
-                total_space: 100_000_000_000, // 100GB
-                available_space: 70_000_000_000, // 70GB
-                used_space: 30_000_000_000, // 30GB
-                usage_percentage: 30.0,
-                is_removable: false,
-            }
-        ]
+        let mut disks = Vec::new();
+        
+        // Get disk information from sysinfo
+        for disk in self.disks.list() {
+            let total_space = disk.total_space();
+            let available_space = disk.available_space();
+            let used_space = total_space.saturating_sub(available_space);
+            
+            let usage_percentage = if total_space > 0 {
+                (used_space as f32 / total_space as f32) * 100.0
+            } else {
+                0.0
+            };
+
+            let file_system = disk.file_system()
+                .to_string_lossy()
+                .to_string();
+
+            let mount_point = disk.mount_point()
+                .to_string_lossy()
+                .to_string();
+
+            let name = disk.name()
+                .to_string_lossy()
+                .to_string();
+
+            disks.push(DiskInfo {
+                name,
+                mount_point,
+                file_system,
+                total_space,
+                available_space,
+                used_space,
+                usage_percentage,
+                is_removable: disk.is_removable(),
+            });
+        }
+        
+        disks
     }
 
     pub fn get_disk_io_stats(&self) -> Vec<DiskIoStats> {
@@ -96,20 +122,4 @@ impl SystemMonitor {
         })
     }
 
-    pub fn format_bytes(bytes: u64) -> String {
-        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
-        let mut size = bytes as f64;
-        let mut unit_index = 0;
-
-        while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-            size /= 1024.0;
-            unit_index += 1;
-        }
-
-        if unit_index == 0 {
-            format!("{} {}", bytes, UNITS[unit_index])
-        } else {
-            format!("{:.1} {}", size, UNITS[unit_index])
-        }
-    }
 }

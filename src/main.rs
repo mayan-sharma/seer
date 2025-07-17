@@ -88,8 +88,15 @@ async fn run_app(
 ) -> Result<()> {
     loop {
         if last_update.elapsed() >= refresh_duration {
-            system_monitor.update().await?;
-            app.update_data(system_monitor);
+            match system_monitor.update().await {
+                Ok(_) => {
+                    app.update_data(system_monitor);
+                    app.set_error_message(None);
+                }
+                Err(e) => {
+                    app.set_error_message(Some(format!("System update failed: {}", e)));
+                }
+            }
             *last_update = Instant::now();
         }
 
@@ -97,17 +104,33 @@ async fn run_app(
 
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
+                // Clear error message on any key press
+                if app.error_message.is_some() {
+                    app.set_error_message(None);
+                    continue;
+                }
+                
                 match key.code {
                     KeyCode::Char('q') => return Ok(()),
                     KeyCode::Char('r') => {
-                        system_monitor.update().await?;
-                        app.update_data(system_monitor);
+                        match system_monitor.update().await {
+                            Ok(_) => {
+                                app.update_data(system_monitor);
+                                app.set_error_message(None);
+                            }
+                            Err(e) => {
+                                app.set_error_message(Some(format!("Manual refresh failed: {}", e)));
+                            }
+                        }
                         *last_update = Instant::now();
                     }
                     KeyCode::Char('p') => app.toggle_process_view(),
                     KeyCode::Char('n') => app.toggle_network_view(),
                     KeyCode::Char('d') => app.toggle_disk_view(),
+                    KeyCode::Char('i') => app.toggle_system_info(),
                     KeyCode::Char('z') => app.toggle_zombie_highlighting(),
+                    KeyCode::Char('h') | KeyCode::Char('?') => app.toggle_help(),
+                    KeyCode::Char('t') => app.cycle_theme(),
                     KeyCode::Up => app.previous_process(),
                     KeyCode::Down => app.next_process(),
                     KeyCode::Char('c') => app.sort_by_cpu(),
