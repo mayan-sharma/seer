@@ -131,11 +131,25 @@ async fn run_app(
                     KeyCode::Char('z') => app.toggle_zombie_highlighting(),
                     KeyCode::Char('h') | KeyCode::Char('?') => app.toggle_help(),
                     KeyCode::Char('t') => app.cycle_theme(),
+                    KeyCode::Char('/') => app.toggle_search(),
                     KeyCode::Up => app.previous_process(),
                     KeyCode::Down => app.next_process(),
                     KeyCode::Char('c') => app.sort_by_cpu(),
                     KeyCode::Char('m') => app.sort_by_memory(),
+                    KeyCode::Char('1') => app.sort_by_pid(),
+                    KeyCode::Char('2') => app.sort_by_name(),
                     KeyCode::Char('k') => app.kill_selected_process()?,
+                    KeyCode::Esc => {
+                        if app.search_mode {
+                            app.toggle_search();
+                        }
+                    }
+                    KeyCode::Backspace => app.backspace_search(),
+                    KeyCode::Char(c) => {
+                        if app.search_mode {
+                            app.add_search_char(c);
+                        }
+                    }
                     _ => {}
                 }
             }

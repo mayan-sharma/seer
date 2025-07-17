@@ -47,7 +47,7 @@ pub struct ThemeColors {
     pub selection: Color,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SortBy {
     Cpu,
     Memory,
@@ -67,6 +67,10 @@ pub struct App {
     pub theme: ColorTheme,
     pub theme_colors: ThemeColors,
     pub show_help: bool,
+    pub search_query: String,
+    pub search_mode: bool,
+    cached_processes: Vec<crate::monitor::ProcessInfo>,
+    cached_sort_by: Option<SortBy>,
 }
 
 impl App {
@@ -86,11 +90,16 @@ impl App {
             theme,
             theme_colors,
             show_help: false,
+            search_query: String::new(),
+            search_mode: false,
+            cached_processes: Vec::new(),
+            cached_sort_by: None,
         }
     }
 
     pub fn update_data(&mut self, system_monitor: &SystemMonitor) {
         self.system_metrics = Some(system_monitor.get_metrics());
+        self.cached_sort_by = None;
     }
 
     pub fn set_error_message(&mut self, message: Option<String>) {
@@ -145,36 +154,104 @@ impl App {
         self.show_zombies_highlighted = !self.show_zombies_highlighted;
     }
 
-    pub fn next_process(&mut self) {
+    fn get_filtered_sorted_processes(&mut self) -> Vec<crate::monitor::ProcessInfo> {
         if let Some(metrics) = &self.system_metrics {
-            if !metrics.processes.is_empty() {
-                self.selected_process_index = (self.selected_process_index + 1) % metrics.processes.len();
+            let need_refresh = self.cached_sort_by != Some(self.sort_by.clone()) || 
+                             self.cached_processes.is_empty();
+            
+            if need_refresh {
+                self.cached_processes = metrics.processes.clone();
+                
+                // Apply filtering
+                if let Some(filter) = &self.config.filter_process {
+                    self.cached_processes.retain(|p| p.name.contains(filter));
+                }
+                
+                // Apply search filtering
+                if !self.search_query.is_empty() {
+                    let query = self.search_query.to_lowercase();
+                    self.cached_processes.retain(|p| p.name.to_lowercase().contains(&query));
+                }
+                
+                // Apply sorting
+                match self.sort_by {
+                    SortBy::Cpu => self.cached_processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap()),
+                    SortBy::Memory => self.cached_processes.sort_by(|a, b| b.memory_usage.cmp(&a.memory_usage)),
+                    SortBy::Pid => self.cached_processes.sort_by(|a, b| a.pid.cmp(&b.pid)),
+                    SortBy::Name => self.cached_processes.sort_by(|a, b| a.name.cmp(&b.name)),
+                }
+                
+                self.cached_sort_by = Some(self.sort_by.clone());
             }
+            
+            self.cached_processes.clone()
+        } else {
+            self.cached_processes.clone()
+        }
+    }
+
+    pub fn next_process(&mut self) {
+        let processes_len = self.get_filtered_sorted_processes().len();
+        if processes_len > 0 {
+            self.selected_process_index = (self.selected_process_index + 1) % processes_len;
         }
     }
 
     pub fn previous_process(&mut self) {
-        if let Some(metrics) = &self.system_metrics {
-            if !metrics.processes.is_empty() {
-                self.selected_process_index = if self.selected_process_index == 0 {
-                    metrics.processes.len() - 1
-                } else {
-                    self.selected_process_index - 1
-                };
-            }
+        let processes_len = self.get_filtered_sorted_processes().len();
+        if processes_len > 0 {
+            self.selected_process_index = if self.selected_process_index == 0 {
+                processes_len - 1
+            } else {
+                self.selected_process_index - 1
+            };
         }
     }
 
     pub fn sort_by_cpu(&mut self) {
         self.sort_by = SortBy::Cpu;
+        self.cached_sort_by = None;
     }
 
     pub fn sort_by_memory(&mut self) {
         self.sort_by = SortBy::Memory;
+        self.cached_sort_by = None;
+    }
+
+    pub fn sort_by_pid(&mut self) {
+        self.sort_by = SortBy::Pid;
+        self.cached_sort_by = None;
+    }
+
+    pub fn sort_by_name(&mut self) {
+        self.sort_by = SortBy::Name;
+        self.cached_sort_by = None;
     }
 
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
+    }
+
+    pub fn toggle_search(&mut self) {
+        self.search_mode = !self.search_mode;
+        if !self.search_mode {
+            self.search_query.clear();
+            self.cached_sort_by = None;
+        }
+    }
+
+    pub fn add_search_char(&mut self, c: char) {
+        if self.search_mode {
+            self.search_query.push(c);
+            self.cached_sort_by = None;
+        }
+    }
+
+    pub fn backspace_search(&mut self) {
+        if self.search_mode && !self.search_query.is_empty() {
+            self.search_query.pop();
+            self.cached_sort_by = None;
+        }
     }
 
     pub fn cycle_theme(&mut self) {
@@ -271,26 +348,24 @@ impl App {
     }
 
     pub fn kill_selected_process(&mut self) -> Result<()> {
-        if let Some(metrics) = &self.system_metrics {
-            if let Some(process) = metrics.processes.get(self.selected_process_index) {
-                // Check if we can kill the process
-                if process.pid == std::process::id() {
-                    self.set_error_message(Some("Cannot kill the monitoring process itself".to_string()));
-                    return Ok(());
-                }
-                
-                // Show confirmation dialog
-                self.show_confirmation_dialog = true;
-            } else {
-                self.set_error_message(Some("No process selected".to_string()));
+        let processes = self.get_filtered_sorted_processes();
+        if !processes.is_empty() && self.selected_process_index < processes.len() {
+            let process_pid = processes[self.selected_process_index].pid;
+            // Check if we can kill the process
+            if process_pid == std::process::id() {
+                self.set_error_message(Some("Cannot kill the monitoring process itself".to_string()));
+                return Ok(());
             }
+            
+            // Show confirmation dialog
+            self.show_confirmation_dialog = true;
         } else {
-            self.set_error_message(Some("No system data available".to_string()));
+            self.set_error_message(Some("No process selected".to_string()));
         }
         Ok(())
     }
 
-    fn render_confirmation_dialog(&self, f: &mut Frame) {
+    fn render_confirmation_dialog(&mut self, f: &mut Frame) {
         let size = f.size();
         let popup_area = centered_rect(50, 20, size);
 
@@ -305,15 +380,12 @@ impl App {
                 .fg(self.theme_colors.warning)
                 .add_modifier(Modifier::BOLD));
 
-        let text = if let Some(metrics) = &self.system_metrics {
-            if let Some(process) = metrics.processes.get(self.selected_process_index) {
-                format!("Kill process {} (PID: {})?\n\nPress 'y' to confirm, any other key to cancel", 
-                       process.name, process.pid)
-            } else {
-                "No process selected".to_string()
-            }
+        let processes = self.get_filtered_sorted_processes();
+        let text = if let Some(process) = processes.get(self.selected_process_index) {
+            format!("Kill process {} (PID: {})?\n\nPress 'y' to confirm, any other key to cancel", 
+                   process.name, process.pid)
         } else {
-            "No process data available".to_string()
+            "No process selected".to_string()
         };
 
         let paragraph = Paragraph::new(text)
@@ -392,8 +464,11 @@ impl App {
             "  ↑/↓          Navigate process list",
             "  c            Sort by CPU usage",
             "  m            Sort by Memory usage",
+            "  1            Sort by PID",
+            "  2            Sort by Name",
             "  k            Kill selected process",
             "  z            Toggle zombie highlighting",
+            "  /            Search processes",
             "",
             "Features:",
             "  • Real-time system monitoring",
@@ -579,16 +654,57 @@ impl App {
                 .style(Style::default().fg(self.theme_colors.foreground));
             f.render_widget(interfaces_widget, chunks[1]);
 
-            // Listening ports placeholder
-            let ports_text = "🔌 Listening ports feature coming soon...";
-            let ports_widget = Paragraph::new(ports_text)
-                .block(Block::default()
-                    .title("Listening Ports")
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .style(Style::default().fg(self.theme_colors.border)))
-                .style(Style::default().fg(self.theme_colors.muted));
-            f.render_widget(ports_widget, chunks[2]);
+            // Listening ports table
+            let system_monitor = crate::monitor::SystemMonitor::new();
+            let listening_ports = system_monitor.get_listening_ports();
+            
+            if !listening_ports.is_empty() {
+                let header_cells = ["🔌 Port", "📡 Protocol", "🏷️ Service", "📊 PID", "📛 Process"]
+                    .iter()
+                    .map(|h| ratatui::widgets::Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD).fg(self.theme_colors.foreground)));
+                let header_row = ratatui::widgets::Row::new(header_cells).style(Style::default().bg(self.theme_colors.secondary));
+
+                let port_rows: Vec<ratatui::widgets::Row> = listening_ports
+                    .iter()
+                    .take(5)
+                    .map(|port| {
+                        ratatui::widgets::Row::new(vec![
+                            ratatui::widgets::Cell::from(port.port.to_string()),
+                            ratatui::widgets::Cell::from(port.protocol.clone()),
+                            ratatui::widgets::Cell::from(port.service_name.clone().unwrap_or_else(|| "Unknown".to_string())),
+                            ratatui::widgets::Cell::from(port.pid.map_or_else(|| "-".to_string(), |p| p.to_string())),
+                            ratatui::widgets::Cell::from(port.process_name.clone().unwrap_or_else(|| "-".to_string())),
+                        ])
+                    })
+                    .collect();
+
+                let ports_table = ratatui::widgets::Table::new(port_rows)
+                    .header(header_row)
+                    .block(Block::default()
+                        .title("Listening Ports")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().fg(self.theme_colors.border)))
+                    .widths(&[
+                        Constraint::Length(8),   // Port
+                        Constraint::Length(10),  // Protocol
+                        Constraint::Length(12),  // Service
+                        Constraint::Length(8),   // PID
+                        Constraint::Min(15),     // Process
+                    ]);
+
+                f.render_widget(ports_table, chunks[2]);
+            } else {
+                let ports_text = "🔌 No listening ports found or insufficient permissions";
+                let ports_widget = Paragraph::new(ports_text)
+                    .block(Block::default()
+                        .title("Listening Ports")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().fg(self.theme_colors.border)))
+                    .style(Style::default().fg(self.theme_colors.muted));
+                f.render_widget(ports_widget, chunks[2]);
+            }
 
             // Footer
             let footer = Paragraph::new("Press 'n' to return to dashboard")

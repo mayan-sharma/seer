@@ -237,22 +237,8 @@ impl App {
     }
 
     fn render_process_table(&mut self, f: &mut Frame, area: Rect) {
-        if let Some(metrics) = &self.system_metrics {
-            let mut processes = metrics.processes.clone();
-            
-            if let Some(filter) = &self.config.filter_process {
-                processes.retain(|p| p.name.contains(filter));
-            }
-
-            match self.sort_by {
-                crate::ui::SortBy::Cpu => processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap()),
-                crate::ui::SortBy::Memory => processes.sort_by(|a, b| b.memory_usage.cmp(&a.memory_usage)),
-                crate::ui::SortBy::Pid => processes.sort_by(|a, b| a.pid.cmp(&b.pid)),
-                crate::ui::SortBy::Name => processes.sort_by(|a, b| a.name.cmp(&b.name)),
-            }
-
-            let zombie_count = processes.iter().filter(|p| p.is_zombie).count();
-            
+        if let Some(_metrics) = &self.system_metrics {
+            // Extract necessary data first to avoid borrow checker issues
             let sort_indicator = match self.sort_by {
                 crate::ui::SortBy::Cpu => "🔥 CPU",
                 crate::ui::SortBy::Memory => "🧠 Memory",
@@ -260,13 +246,34 @@ impl App {
                 crate::ui::SortBy::Name => "📛 Name",
             };
 
+            let search_info = if self.search_mode {
+                format!(" | Search: '{}'", self.search_query)
+            } else if !self.search_query.is_empty() {
+                format!(" | Filtered: '{}'", self.search_query)
+            } else {
+                String::new()
+            };
+
+            let show_zombies = self.show_zombies_highlighted;
+            
+            // Now get the processes
+            let processes = self.get_filtered_sorted_processes();
+            let processes_len = processes.len();
+            let zombie_count = processes.iter().filter(|p| p.is_zombie).count();
+            
+            // Ensure selected_process_index is within bounds
+            if self.selected_process_index >= processes_len {
+                self.selected_process_index = if processes_len == 0 { 0 } else { processes_len - 1 };
+            }
+
             let title = format!(
-                "🔍 Top Processes {} - {} total, {} zombies {} | Sort: {}",
-                if self.show_zombies_highlighted { "(⚠️ Zombies highlighted)" } else { "" },
-                processes.len(),
+                "🔍 Top Processes {} - {} total, {} zombies {} | Sort: {}{}",
+                if show_zombies { "(⚠️ Zombies highlighted)" } else { "" },
+                processes_len,
                 zombie_count,
                 if zombie_count > 0 { "⚠️" } else { "" },
-                sort_indicator
+                sort_indicator,
+                search_info
             );
 
             let header_cells = ["🆔 PID", "📛 Name", "🔥 CPU%", "🧠 MEM%", "💾 Memory", "👤 User", "📊 Status"]
@@ -274,17 +281,43 @@ impl App {
                 .map(|h| Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD).fg(self.theme_colors.foreground)));
             let header = Row::new(header_cells).style(Style::default().bg(self.theme_colors.secondary));
 
-            let rows: Vec<Row> = processes
+            // Calculate viewport: how many rows can fit in the table
+            let max_rows = area.height.saturating_sub(3) as usize; // subtract header + borders
+            
+            // Calculate scroll offset to keep selected process visible
+            let scroll_offset = if self.selected_process_index < max_rows {
+                0
+            } else {
+                self.selected_process_index - max_rows + 1
+            };
+
+            // Copy theme colors to avoid borrow issues
+            let selection_color = self.theme_colors.selection;
+            let error_color = self.theme_colors.error;
+            let warning_color = self.theme_colors.warning;
+            let foreground_color = self.theme_colors.foreground;
+            let selected_index = self.selected_process_index;
+            let show_zombies = self.show_zombies_highlighted;
+
+            // Get the slice of processes to display
+            let visible_processes: Vec<crate::monitor::ProcessInfo> = processes
                 .iter()
-                .take(area.height.saturating_sub(3) as usize)
+                .skip(scroll_offset)
+                .take(max_rows)
+                .cloned()
+                .collect();
+
+            let rows: Vec<Row> = visible_processes
+                .iter()
                 .enumerate()
                 .map(|(i, process)| {
-                    let style = if i == self.selected_process_index {
-                        Style::default().bg(self.theme_colors.selection).add_modifier(Modifier::BOLD)
-                    } else if process.is_zombie && self.show_zombies_highlighted {
-                        Style::default().fg(self.theme_colors.error).add_modifier(Modifier::BOLD)
+                    let actual_index = scroll_offset + i;
+                    let style = if actual_index == selected_index {
+                        Style::default().bg(selection_color).add_modifier(Modifier::BOLD)
+                    } else if process.is_zombie && show_zombies {
+                        Style::default().fg(error_color).add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(self.theme_colors.foreground)
+                        Style::default().fg(foreground_color)
                     };
 
                     let status_display = if process.is_zombie {
@@ -294,19 +327,19 @@ impl App {
                     };
 
                     let cpu_color = if process.cpu_usage > 80.0 {
-                        self.theme_colors.error
+                        error_color
                     } else if process.cpu_usage > 50.0 {
-                        self.theme_colors.warning
+                        warning_color
                     } else {
-                        self.theme_colors.foreground
+                        foreground_color
                     };
 
                     let memory_color = if process.memory_percentage > 80.0 {
-                        self.theme_colors.error
+                        error_color
                     } else if process.memory_percentage > 50.0 {
-                        self.theme_colors.warning
+                        warning_color
                     } else {
-                        self.theme_colors.foreground
+                        foreground_color
                     };
 
                     Row::new(vec![
@@ -408,7 +441,7 @@ impl App {
         };
 
         let footer_text = format!(
-            "🎯 q:Quit | 🔄 r:Refresh | 📊 p:Processes | 🌐 n:Network | 💾 d:Disk | 🖥️ i:SysInfo | 🎨 t:Theme({}) | 💡 h:Help | ⚠️ z:Zombies | ⬆️⬇️:Navigate | 🔥 c:CPU | 🧠 m:Memory | ⚡ k:Kill",
+            "🎯 q:Quit | 🔄 r:Refresh | 📊 p:Processes | 🌐 n:Network | 💾 d:Disk | 🖥️ i:SysInfo | 🎨 t:Theme({}) | 💡 h:Help | ⚠️ z:Zombies | ⬆️⬇️:Navigate | 🔥 c:CPU | 🧠 m:Memory | 🔢 1:PID | 📛 2:Name | ⚡ k:Kill | 🔍 /:Search",
             theme_name
         );
         
