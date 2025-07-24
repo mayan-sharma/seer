@@ -44,15 +44,6 @@ impl Config {
         Ok(home.join(".config").join("seer").join("config.toml"))
     }
 
-    pub fn save_to_file(&self) -> Result<()> {
-        let config_path = Self::get_config_path()?;
-        if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let content = toml::to_string_pretty(self)?;
-        fs::write(config_path, content)?;
-        Ok(())
-    }
 }
 
 impl Default for Config {
@@ -65,5 +56,53 @@ impl Default for Config {
             threshold_cpu: 80.0,
             threshold_memory: 80.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_default() {
+        let config = Config::default();
+        assert_eq!(config.refresh_rate, 2);
+        assert!(!config.show_zombies);
+        assert_eq!(config.threshold_cpu, 80.0);
+        assert_eq!(config.threshold_memory, 80.0);
+        assert!(config.filter_process.is_none());
+        assert!(config.export_format.is_none());
+    }
+
+    #[test]
+    fn test_config_from_cli() {
+        let cli = crate::Cli {
+            refresh_rate: 5,
+            show_zombies: true,
+            filter_process: Some("test".to_string()),
+            export: Some("json".to_string()),
+            threshold_cpu: 90.0,
+            threshold_memory: 85.0,
+        };
+
+        let config = Config::new(cli).expect("Failed to create config");
+        assert_eq!(config.refresh_rate, 5);
+        assert!(config.show_zombies);
+        assert_eq!(config.filter_process, Some("test".to_string()));
+        assert_eq!(config.export_format, Some("json".to_string()));
+        assert_eq!(config.threshold_cpu, 90.0);
+        assert_eq!(config.threshold_memory, 85.0);
+    }
+
+    #[test]
+    fn test_config_serialization() {
+        let config = Config::default();
+        let serialized = toml::to_string(&config).expect("Failed to serialize config");
+        let deserialized: Config = toml::from_str(&serialized).expect("Failed to deserialize config");
+        
+        assert_eq!(config.refresh_rate, deserialized.refresh_rate);
+        assert_eq!(config.show_zombies, deserialized.show_zombies);
+        assert_eq!(config.threshold_cpu, deserialized.threshold_cpu);
+        assert_eq!(config.threshold_memory, deserialized.threshold_memory);
     }
 }

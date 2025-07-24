@@ -2,18 +2,25 @@ pub mod system;
 pub mod processes;
 pub mod network;
 pub mod storage;
+pub mod history;
+pub mod export;
+pub mod process_tree;
 
 use anyhow::Result;
 use sysinfo::{System, Networks, Disks};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use history::HistoryManager;
 
 pub use system::*;
 pub use processes::*;
 pub use network::*;
 pub use storage::*;
+pub use history::*;
+pub use export::*;
+pub use process_tree::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SystemMetrics {
     pub cpu: CpuMetrics,
     pub memory: MemoryMetrics,
@@ -25,14 +32,14 @@ pub struct SystemMetrics {
     pub boot_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CpuMetrics {
     pub overall_usage: f32,
     pub per_core_usage: Vec<f32>,
     pub temperature: Option<f32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MemoryMetrics {
     pub total_ram: u64,
     pub used_ram: u64,
@@ -43,7 +50,7 @@ pub struct MemoryMetrics {
     pub swap_percentage: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LoadAverage {
     pub one_min: f64,
     pub five_min: f64,
@@ -55,6 +62,7 @@ pub struct SystemMonitor {
     networks: Networks,
     disks: Disks,
     previous_network_data: HashMap<String, (u64, u64)>,
+    pub history: HistoryManager,
 }
 
 impl SystemMonitor {
@@ -67,6 +75,7 @@ impl SystemMonitor {
             networks: Networks::new_with_refreshed_list(),
             disks: Disks::new_with_refreshed_list(),
             previous_network_data: HashMap::new(),
+            history: HistoryManager::new(1440), // Store 24 hours of data (1 minute intervals)
         }
     }
 
@@ -81,8 +90,8 @@ impl SystemMonitor {
         Ok(())
     }
 
-    pub fn get_metrics(&self) -> SystemMetrics {
-        SystemMetrics {
+    pub fn get_metrics(&mut self) -> SystemMetrics {
+        let metrics = SystemMetrics {
             cpu: self.get_cpu_metrics(),
             memory: self.get_memory_metrics(),
             processes: self.get_process_info(),
@@ -91,7 +100,12 @@ impl SystemMonitor {
             uptime: System::uptime(),
             load_average: self.get_load_average(),
             boot_time: self.get_boot_time(),
-        }
+        };
+        
+        // Add to history
+        self.history.add_metrics(&metrics);
+        
+        metrics
     }
 
     fn get_cpu_metrics(&self) -> CpuMetrics {

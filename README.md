@@ -6,10 +6,16 @@ A comprehensive CLI system monitoring tool built in Rust that provides real-time
 
 - **Real-time System Monitoring**: CPU, memory, disk, and network usage
 - **Process Management**: View running processes with sorting and filtering capabilities
+- **Process Tree View**: Hierarchical display of process relationships
+- **Historical Data Tracking**: Track system metrics over time with 24-hour history
 - **Interactive TUI**: Built with Ratatui for a responsive terminal interface
+- **Data Export**: Export current metrics and historical data to JSON, CSV, or TOML formats
+- **Multiple Views**: Dashboard, Process List, Process Tree, Network, Disk, System Info, and History
 - **Customizable Thresholds**: Set CPU and memory usage alerts
 - **Zombie Process Detection**: Highlight and filter zombie processes
-- **Export Functionality**: Export system data to various formats
+- **Network Monitoring**: Interface statistics and listening ports display
+- **Search Functionality**: Search and filter processes by name
+- **Multiple Themes**: 5 built-in color themes (Default, Dark, Gruvbox, Dracula, Solarized)
 - **Keyboard Navigation**: Intuitive controls for navigating data
 
 ## Installation
@@ -42,7 +48,7 @@ seer
 - `-r, --refresh-rate <SECONDS>`: Set refresh rate (default: 2 seconds)
 - `--show-zombies`: Show zombie processes
 - `-f, --filter-process <NAME>`: Filter processes by name
-- `-e, --export <FORMAT>`: Export data to specified format
+- `-e, --export <FORMAT>`: Export data to specified format (json, csv, toml)
 - `--threshold-cpu <PERCENTAGE>`: CPU usage threshold (default: 80%)
 - `--threshold-memory <PERCENTAGE>`: Memory usage threshold (default: 80%)
 
@@ -69,16 +75,23 @@ seer -e json
 | `q` | Quit the application |
 | `r` | Manual refresh |
 | `p` | Toggle process view |
+| `T` | Toggle process tree view |
 | `n` | Toggle network view |
 | `d` | Toggle disk view |
 | `i` | Toggle system info |
+| `H` | Toggle history view |
 | `z` | Toggle zombie highlighting |
 | `h` or `?` | Toggle help |
 | `t` | Cycle themes |
 | `↑/↓` | Navigate process list |
 | `c` | Sort by CPU usage |
 | `m` | Sort by memory usage |
+| `1` | Sort by PID |
+| `2` | Sort by Name |
 | `k` | Kill selected process |
+| `/` | Search processes |
+| `e` | Export current data (JSON) |
+| `E` | Export historical data (CSV) |
 
 ## Configuration
 
@@ -102,6 +115,9 @@ threshold_memory = 80.0
 - **clap**: Command line argument parsing
 - **chrono**: Date and time handling
 - **serde**: Serialization framework
+- **serde_json**: JSON serialization
+- **csv**: CSV file handling
+- **toml**: TOML configuration format
 
 ## License
 

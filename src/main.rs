@@ -13,37 +13,7 @@ use std::io;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-mod config;
-mod monitor;
-mod ui;
-
-use config::Config;
-use monitor::SystemMonitor;
-use ui::App;
-
-#[derive(Parser)]
-#[command(name = "seer")]
-#[command(about = "A comprehensive CLI system monitoring tool")]
-#[command(version = "0.1.0")]
-pub struct Cli {
-    #[arg(short = 'r', long = "refresh-rate", default_value = "2")]
-    pub refresh_rate: u64,
-
-    #[arg(long = "show-zombies")]
-    pub show_zombies: bool,
-
-    #[arg(short = 'f', long = "filter-process")]
-    pub filter_process: Option<String>,
-
-    #[arg(short = 'e', long = "export")]
-    pub export: Option<String>,
-
-    #[arg(long = "threshold-cpu", default_value = "80")]
-    pub threshold_cpu: f32,
-
-    #[arg(long = "threshold-memory", default_value = "80")]
-    pub threshold_memory: f32,
-}
+use seer::{Cli, config::Config, monitor::SystemMonitor, ui::App};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -128,6 +98,8 @@ async fn run_app(
                     KeyCode::Char('n') => app.toggle_network_view(),
                     KeyCode::Char('d') => app.toggle_disk_view(),
                     KeyCode::Char('i') => app.toggle_system_info(),
+                    KeyCode::Char('H') => app.toggle_history_view(),
+                    KeyCode::Char('T') => app.toggle_process_tree(),
                     KeyCode::Char('z') => app.toggle_zombie_highlighting(),
                     KeyCode::Char('h') | KeyCode::Char('?') => app.toggle_help(),
                     KeyCode::Char('t') => app.cycle_theme(),
@@ -139,9 +111,22 @@ async fn run_app(
                     KeyCode::Char('1') => app.sort_by_pid(),
                     KeyCode::Char('2') => app.sort_by_name(),
                     KeyCode::Char('k') => app.kill_selected_process()?,
+                    KeyCode::Char('e') => {
+                        if let Err(e) = app.export_current_data("json") {
+                            app.set_error_message(Some(format!("Export failed: {}", e)));
+                        }
+                    }
+                    KeyCode::Char('E') => {
+                        if let Err(e) = app.export_historical_data("csv", system_monitor) {
+                            app.set_error_message(Some(format!("Export failed: {}", e)));
+                        }
+                    }
                     KeyCode::Esc => {
                         if app.search_mode {
                             app.toggle_search();
+                        }
+                        if app.export_message.is_some() {
+                            app.export_message = None;
                         }
                     }
                     KeyCode::Backspace => app.backspace_search(),

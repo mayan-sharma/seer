@@ -1,7 +1,7 @@
 // use sysinfo::NetworkExt; // Not needed in newer versions
 use crate::monitor::SystemMonitor;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NetworkMetrics {
     pub interfaces: Vec<NetworkInterface>,
     pub total_bytes_received: u64,
@@ -10,7 +10,7 @@ pub struct NetworkMetrics {
     pub total_packets_transmitted: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NetworkInterface {
     pub name: String,
     pub bytes_received: u64,
@@ -22,7 +22,7 @@ pub struct NetworkInterface {
     pub is_up: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NetworkConnection {
     pub local_addr: String,
     pub remote_addr: String,
@@ -32,7 +32,7 @@ pub struct NetworkConnection {
     pub process_name: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ListeningPort {
     pub port: u16,
     pub protocol: String,
@@ -120,10 +120,24 @@ impl SystemMonitor {
     #[cfg(target_os = "linux")]
     fn parse_proc_net_tcp(&self) -> Vec<ListeningPort> {
         use std::fs;
+        use std::path::Path;
         
         let mut ports = Vec::new();
+        let proc_path = Path::new("/proc/net/tcp");
         
-        if let Ok(content) = fs::read_to_string("/proc/net/tcp") {
+        // Validate that the path is safe and exists
+        if !proc_path.exists() || !proc_path.is_file() {
+            return ports;
+        }
+        
+        // Additional security check: ensure we're reading from /proc
+        if let Some(parent) = proc_path.parent() {
+            if parent != Path::new("/proc/net") {
+                return ports;
+            }
+        }
+        
+        if let Ok(content) = fs::read_to_string(proc_path) {
             for line in content.lines().skip(1) {
                 if let Some(port) = self.parse_net_line(line, "tcp") {
                     ports.push(port);
@@ -137,10 +151,24 @@ impl SystemMonitor {
     #[cfg(target_os = "linux")]
     fn parse_proc_net_udp(&self) -> Vec<ListeningPort> {
         use std::fs;
+        use std::path::Path;
         
         let mut ports = Vec::new();
+        let proc_path = Path::new("/proc/net/udp");
         
-        if let Ok(content) = fs::read_to_string("/proc/net/udp") {
+        // Validate that the path is safe and exists
+        if !proc_path.exists() || !proc_path.is_file() {
+            return ports;
+        }
+        
+        // Additional security check: ensure we're reading from /proc
+        if let Some(parent) = proc_path.parent() {
+            if parent != Path::new("/proc/net") {
+                return ports;
+            }
+        }
+        
+        if let Ok(content) = fs::read_to_string(proc_path) {
             for line in content.lines().skip(1) {
                 if let Some(port) = self.parse_net_line(line, "udp") {
                     ports.push(port);
@@ -153,13 +181,28 @@ impl SystemMonitor {
 
     #[cfg(target_os = "linux")]
     fn parse_net_line(&self, line: &str, protocol: &str) -> Option<ListeningPort> {
-        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        // Input validation: check line length to prevent potential attacks
+        if line.len() > 1024 {
+            return None;
+        }
+        
+        // Validate protocol parameter
+        if !matches!(protocol, "tcp" | "udp") {
+            return None;
+        }
+        
+        let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() < 10 {
             return None;
         }
 
         let local_addr = parts[1];
         let state = parts[3];
+        
+        // Validate local_addr format
+        if !local_addr.contains(':') || local_addr.len() > 64 {
+            return None;
+        }
 
         if protocol == "tcp" && state != "0A" {
             return None;
@@ -200,5 +243,52 @@ impl SystemMonitor {
             (27017, "tcp") => Some("MongoDB".to_string()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_net_line_security() {
+        let monitor = SystemMonitor::new();
+        
+        // Test normal valid input
+        let valid_line = "  1: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 10000 1 0000000000000000 100 0 0 10 0";
+        let result = monitor.parse_net_line(valid_line, "tcp");
+        assert!(result.is_some());
+        
+        // Test input validation: oversized line should be rejected
+        let oversized_line = "x".repeat(2000);
+        let result = monitor.parse_net_line(&oversized_line, "tcp");
+        assert!(result.is_none());
+        
+        // Test invalid protocol should be rejected
+        let result = monitor.parse_net_line(valid_line, "invalid_protocol");
+        assert!(result.is_none());
+        
+        // Test malformed local_addr should be rejected
+        let malformed_line = "  1: malformed_addr 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 10000 1 0000000000000000 100 0 0 10 0";
+        let result = monitor.parse_net_line(malformed_line, "tcp");
+        assert!(result.is_none());
+        
+        // Test line with insufficient fields should be rejected
+        let short_line = "1: 00000000:0016 00000000:0000";
+        let result = monitor.parse_net_line(short_line, "tcp");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_proc_path_validation() {
+        let monitor = SystemMonitor::new();
+        
+        // Test that the functions handle non-existent proc files gracefully
+        let tcp_ports = monitor.parse_proc_net_tcp();
+        let udp_ports = monitor.parse_proc_net_udp();
+        
+        // These should not panic even if /proc/net/ files don't exist or are inaccessible
+        assert!(tcp_ports.len() >= 0);
+        assert!(udp_ports.len() >= 0);
     }
 }

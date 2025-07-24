@@ -1,7 +1,7 @@
-use sysinfo::{ProcessStatus, Pid};
+use sysinfo::ProcessStatus;
 use crate::monitor::SystemMonitor;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
@@ -15,7 +15,7 @@ pub struct ProcessInfo {
     pub command: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ProcessStatusInfo {
     Running,
     Sleeping,
@@ -95,32 +95,4 @@ impl SystemMonitor {
             .collect()
     }
 
-    pub fn get_top_processes_by_cpu(&self, limit: usize) -> Vec<ProcessInfo> {
-        let mut processes = self.get_process_info();
-        processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap());
-        processes.truncate(limit);
-        processes
-    }
-
-    pub fn get_top_processes_by_memory(&self, limit: usize) -> Vec<ProcessInfo> {
-        let mut processes = self.get_process_info();
-        processes.sort_by(|a, b| b.memory_usage.cmp(&a.memory_usage));
-        processes.truncate(limit);
-        processes
-    }
-
-    pub fn get_zombie_processes(&self) -> Vec<ProcessInfo> {
-        self.get_process_info()
-            .into_iter()
-            .filter(|p| p.is_zombie)
-            .collect()
-    }
-
-    pub fn kill_process(&mut self, pid: u32) -> anyhow::Result<bool> {
-        if let Some(process) = self.system.process(Pid::from_u32(pid)) {
-            Ok(process.kill())
-        } else {
-            Err(anyhow::anyhow!("Process with PID {} not found", pid))
-        }
-    }
 }

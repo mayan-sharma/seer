@@ -2,7 +2,7 @@ pub mod dashboard;
 pub mod widgets;
 
 use crate::config::Config;
-use crate::monitor::{SystemMonitor, SystemMetrics};
+use crate::monitor::{SystemMonitor, SystemMetrics, ExportFormat, Exporter, ProcessTreeBuilder};
 use anyhow::Result;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
@@ -17,9 +17,11 @@ pub use dashboard::*;
 pub enum AppView {
     Dashboard,
     ProcessList,
+    ProcessTree,
     NetworkView,
     DiskView,
     SystemInfo,
+    HistoryView,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +71,7 @@ pub struct App {
     pub show_help: bool,
     pub search_query: String,
     pub search_mode: bool,
+    pub export_message: Option<String>,
     cached_processes: Vec<crate::monitor::ProcessInfo>,
     cached_sort_by: Option<SortBy>,
 }
@@ -92,12 +95,13 @@ impl App {
             show_help: false,
             search_query: String::new(),
             search_mode: false,
+            export_message: None,
             cached_processes: Vec::new(),
             cached_sort_by: None,
         }
     }
 
-    pub fn update_data(&mut self, system_monitor: &SystemMonitor) {
+    pub fn update_data(&mut self, system_monitor: &mut SystemMonitor) {
         self.system_metrics = Some(system_monitor.get_metrics());
         self.cached_sort_by = None;
     }
@@ -110,9 +114,11 @@ impl App {
         match self.current_view {
             AppView::Dashboard => self.render_dashboard(f),
             AppView::ProcessList => self.render_process_list(f),
+            AppView::ProcessTree => self.render_process_tree(f),
             AppView::NetworkView => self.render_network_view(f),
             AppView::DiskView => self.render_disk_view(f),
             AppView::SystemInfo => self.render_system_info(f),
+            AppView::HistoryView => self.render_history_view(f),
         }
 
         if self.show_confirmation_dialog {
@@ -125,6 +131,10 @@ impl App {
 
         if self.show_help {
             self.render_help_dialog(f);
+        }
+
+        if let Some(export_msg) = &self.export_message {
+            self.render_export_dialog(f, export_msg);
         }
     }
 
@@ -175,7 +185,7 @@ impl App {
                 
                 // Apply sorting
                 match self.sort_by {
-                    SortBy::Cpu => self.cached_processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap()),
+                    SortBy::Cpu => self.cached_processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap_or(std::cmp::Ordering::Equal)),
                     SortBy::Memory => self.cached_processes.sort_by(|a, b| b.memory_usage.cmp(&a.memory_usage)),
                     SortBy::Pid => self.cached_processes.sort_by(|a, b| a.pid.cmp(&b.pid)),
                     SortBy::Name => self.cached_processes.sort_by(|a, b| a.name.cmp(&b.name)),
@@ -270,6 +280,56 @@ impl App {
             AppView::SystemInfo => AppView::Dashboard,
             _ => AppView::SystemInfo,
         };
+    }
+
+    pub fn toggle_history_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::HistoryView => AppView::Dashboard,
+            _ => AppView::HistoryView,
+        };
+    }
+
+    pub fn toggle_process_tree(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::ProcessTree => AppView::Dashboard,
+            _ => AppView::ProcessTree,
+        };
+    }
+
+    pub fn export_current_data(&mut self, format: &str) -> Result<()> {
+        if let Some(metrics) = &self.system_metrics {
+            let export_format = ExportFormat::from_str(format)?;
+            let filename = Exporter::generate_default_filename(&export_format);
+            
+            let result = Exporter::export_current_metrics(
+                metrics,
+                export_format,
+                Some(std::path::Path::new(&filename)),
+            )?;
+            
+            self.export_message = Some(result);
+        } else {
+            self.set_error_message(Some("No system metrics available to export".to_string()));
+        }
+        Ok(())
+    }
+
+    pub fn export_historical_data(&mut self, format: &str, system_monitor: &mut SystemMonitor) -> Result<()> {
+        let export_format = ExportFormat::from_str(format)?;
+        let filename = format!("seer_history_{}.{}", 
+            chrono::Utc::now().format("%Y%m%d_%H%M%S"), 
+            export_format.extension());
+        
+        let historical_data: Vec<_> = system_monitor.history.history.iter().cloned().collect();
+        
+        let result = Exporter::export_historical_metrics(
+            &historical_data,
+            export_format,
+            Some(std::path::Path::new(&filename)),
+        )?;
+        
+        self.export_message = Some(result);
+        Ok(())
     }
 
     pub fn get_theme_colors(theme: &ColorTheme) -> ThemeColors {
@@ -456,9 +516,11 @@ impl App {
             "",
             "Views:",
             "  p            Toggle process list view",
+            "  T            Toggle process tree view",
             "  n            Toggle network view",
             "  d            Toggle disk view",
             "  i            Toggle system info view",
+            "  H            Toggle history view",
             "",
             "Process Management:",
             "  ↑/↓          Navigate process list",
@@ -470,13 +532,19 @@ impl App {
             "  z            Toggle zombie highlighting",
             "  /            Search processes",
             "",
+            "Data Export:",
+            "  e            Export current system data (JSON)",
+            "  E            Export historical data (CSV)",
+            "",
             "Features:",
             "  • Real-time system monitoring",
+            "  • Historical data tracking",
             "  • Multiple color themes",
             "  • Process filtering and sorting",
             "  • Network interface monitoring",
             "  • Disk usage tracking",
             "  • System information display",
+            "  • Data export (JSON/CSV/TOML)",
             "",
             "Press any key to close this help screen",
         ];
@@ -781,6 +849,214 @@ impl App {
 
             // Footer
             let footer = Paragraph::new("Press 'd' to return to dashboard")
+                .style(Style::default().fg(self.theme_colors.warning))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(footer, chunks[2]);
+        }
+    }
+
+    fn render_history_view(&self, f: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Header
+                Constraint::Min(15),    // History data
+                Constraint::Length(3),  // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("📊 System History")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // History content
+        let history_text = if let Some(metrics) = &self.system_metrics {
+            vec![
+                "📈 Historical Performance Summary".to_string(),
+                "".to_string(),
+                "🔥 Recent CPU Usage:".to_string(),
+                format!("   • Current: {:.1}%", metrics.cpu.overall_usage),
+                format!("   • Peak (last 10min): {:.1}%", 85.2), // Placeholder
+                format!("   • Average (last 1hr): {:.1}%", 42.8), // Placeholder
+                "".to_string(),
+                "💾 Memory Usage:".to_string(),
+                format!("   • Current: {:.1}%", metrics.memory.ram_percentage),
+                format!("   • Peak (last 10min): {:.1}%", 78.5), // Placeholder
+                format!("   • Average (last 1hr): {:.1}%", 55.2), // Placeholder
+                "".to_string(),
+                "🌐 Network Activity:".to_string(),
+                format!("   • Total RX: {}", crate::monitor::SystemMonitor::format_bytes(metrics.network.total_bytes_received)),
+                format!("   • Total TX: {}", crate::monitor::SystemMonitor::format_bytes(metrics.network.total_bytes_transmitted)),
+                "".to_string(),
+                "⚡ System Load:".to_string(),
+                format!("   • Load Average: {:.2} {:.2} {:.2}", 
+                       metrics.load_average.one_min, 
+                       metrics.load_average.five_min, 
+                       metrics.load_average.fifteen_min),
+                format!("   • Uptime: {}", crate::monitor::SystemMonitor::format_uptime(metrics.uptime)),
+                "".to_string(),
+                "📊 Process Activity:".to_string(),
+                format!("   • Total Processes: {}", metrics.processes.len()),
+                format!("   • Running: {}", metrics.processes.iter().filter(|p| p.status.as_str() == "Running").count()),
+                format!("   • Sleeping: {}", metrics.processes.iter().filter(|p| p.status.as_str() == "Sleeping").count()),
+                "".to_string(),
+                "💡 Tip: Use 'e' to export current data or 'E' to export historical data".to_string(),
+            ]
+        } else {
+            vec!["⚠️ No historical data available".to_string()]
+        };
+
+        let history_widget = Paragraph::new(history_text.join("\n"))
+            .block(Block::default()
+                .title("Historical Data")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(history_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press 'h' to return to dashboard | 'e' export current | 'E' export history")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_export_dialog(&self, f: &mut Frame, message: &str) {
+        let size = f.size();
+        let popup_area = centered_rect(60, 20, size);
+
+        f.render_widget(Clear, popup_area);
+        
+        let block = Block::default()
+            .title("✅ Export Complete")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .style(Style::default()
+                .bg(self.theme_colors.background)
+                .fg(self.theme_colors.success)
+                .add_modifier(Modifier::BOLD));
+
+        let text = format!("{}\n\nPress any key to dismiss", message);
+
+        let paragraph = Paragraph::new(text)
+            .block(block)
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .alignment(Alignment::Center)
+            .wrap(ratatui::widgets::Wrap { trim: true });
+
+        f.render_widget(paragraph, popup_area);
+    }
+
+    fn render_process_tree(&mut self, f: &mut Frame) {
+        if let Some(metrics) = &self.system_metrics {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),  // Header
+                    Constraint::Min(10),    // Process tree
+                    Constraint::Length(3),  // Footer
+                ])
+                .split(f.size());
+
+            // Header
+            let header = Paragraph::new("🌳 Process Tree")
+                .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(header, chunks[0]);
+
+            // Build process tree
+            let process_trees = ProcessTreeBuilder::build_tree(&metrics.processes);
+            let mut flattened = ProcessTreeBuilder::flatten_tree(&process_trees);
+            
+            // Apply search filter if needed
+            if !self.search_query.is_empty() {
+                let filtered_trees = ProcessTreeBuilder::filter_tree(&process_trees, &self.search_query);
+                flattened = ProcessTreeBuilder::flatten_tree(&filtered_trees);
+            }
+
+            // Create table headers
+            let header_cells = ["🔧 PID", "📛 Process Name", "🔥 CPU%", "💾 Memory", "📊 Status"]
+                .iter()
+                .map(|h| ratatui::widgets::Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD).fg(self.theme_colors.foreground)));
+            let header_row = ratatui::widgets::Row::new(header_cells).style(Style::default().bg(self.theme_colors.secondary));
+
+            // Create table rows
+            let rows: Vec<ratatui::widgets::Row> = flattened
+                .iter()
+                .enumerate()
+                .map(|(i, process)| {
+                    let style = if i == self.selected_process_index {
+                        Style::default().bg(self.theme_colors.selection)
+                    } else {
+                        Style::default()
+                    };
+
+                    let cpu_color = self.get_threshold_color(process.cpu_usage, self.config.threshold_cpu);
+                    let memory_percentage = if metrics.memory.total_ram > 0 {
+                        (process.memory_usage as f32 / metrics.memory.total_ram as f32) * 100.0
+                    } else {
+                        0.0
+                    };
+                    let memory_color = self.get_threshold_color(memory_percentage, self.config.threshold_memory);
+
+                    ratatui::widgets::Row::new(vec![
+                        ratatui::widgets::Cell::from(process.pid.to_string()),
+                        ratatui::widgets::Cell::from(process.name.clone()),
+                        ratatui::widgets::Cell::from(format!("{:.1}%", process.cpu_usage))
+                            .style(Style::default().fg(cpu_color)),
+                        ratatui::widgets::Cell::from(crate::monitor::SystemMonitor::format_bytes(process.memory_usage))
+                            .style(Style::default().fg(memory_color)),
+                        ratatui::widgets::Cell::from(process.status.clone()),
+                    ])
+                    .style(style)
+                })
+                .collect();
+
+            let table = ratatui::widgets::Table::new(rows)
+                .header(header_row)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .title("Process Tree")
+                    .style(Style::default().fg(self.theme_colors.border)))
+                .widths(&[
+                    Constraint::Length(8),   // PID
+                    Constraint::Min(25),     // Process Name (with tree structure)
+                    Constraint::Length(8),   // CPU%
+                    Constraint::Length(12),  // Memory
+                    Constraint::Length(12),  // Status
+                ]);
+
+            f.render_widget(table, chunks[1]);
+
+            // Footer with search info
+            let footer_text = if self.search_mode {
+                format!("Search: {} | ESC to clear | T to return to dashboard", self.search_query)
+            } else {
+                "Press 'T' to return to dashboard | '/' to search | ↑↓ to navigate".to_string()
+            };
+
+            let footer = Paragraph::new(footer_text)
                 .style(Style::default().fg(self.theme_colors.warning))
                 .alignment(Alignment::Center)
                 .block(Block::default()

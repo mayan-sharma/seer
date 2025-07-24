@@ -1,7 +1,7 @@
 // use sysinfo::DiskExt; // Not needed in newer versions
 use crate::monitor::SystemMonitor;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiskInfo {
     pub name: String,
     pub mount_point: String,
@@ -13,7 +13,7 @@ pub struct DiskInfo {
     pub is_removable: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiskIoStats {
     pub read_bytes: u64,
     pub write_bytes: u64,
@@ -64,62 +64,5 @@ impl SystemMonitor {
         disks
     }
 
-    pub fn get_disk_io_stats(&self) -> Vec<DiskIoStats> {
-        #[cfg(target_os = "linux")]
-        {
-            self.read_linux_disk_stats()
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            Vec::new()
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn read_linux_disk_stats(&self) -> Vec<DiskIoStats> {
-        use std::fs;
-        
-        let mut stats = Vec::new();
-        
-        if let Ok(content) = fs::read_to_string("/proc/diskstats") {
-            for line in content.lines() {
-                if let Some(stat) = self.parse_diskstats_line(line) {
-                    stats.push(stat);
-                }
-            }
-        }
-        
-        stats
-    }
-
-    #[cfg(target_os = "linux")]
-    fn parse_diskstats_line(&self, line: &str) -> Option<DiskIoStats> {
-        let parts: Vec<&str> = line.trim().split_whitespace().collect();
-        if parts.len() < 14 {
-            return None;
-        }
-
-        let device_name = parts[2];
-        
-        if device_name.starts_with("loop") || 
-           device_name.starts_with("ram") ||
-           device_name.len() < 3 {
-            return None;
-        }
-
-        let read_sectors = parts[5].parse::<u64>().ok()?;
-        let write_sectors = parts[9].parse::<u64>().ok()?;
-        let read_ops = parts[3].parse::<u64>().ok()?;
-        let write_ops = parts[7].parse::<u64>().ok()?;
-
-        const SECTOR_SIZE: u64 = 512;
-
-        Some(DiskIoStats {
-            read_bytes: read_sectors * SECTOR_SIZE,
-            write_bytes: write_sectors * SECTOR_SIZE,
-            read_ops,
-            write_ops,
-        })
-    }
 
 }
