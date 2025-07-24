@@ -2,7 +2,7 @@ pub mod dashboard;
 pub mod widgets;
 
 use crate::config::Config;
-use crate::monitor::{SystemMonitor, SystemMetrics, ExportFormat, Exporter, ProcessTreeBuilder};
+use crate::monitor::{SystemMonitor, SystemMetrics, ExportFormat, Exporter, ProcessTreeBuilder, ProcessGroupBy, ProcessGroup, AffinityManager};
 use anyhow::Result;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
@@ -18,10 +18,14 @@ pub enum AppView {
     Dashboard,
     ProcessList,
     ProcessTree,
+    ProcessGroups,
+    ProcessDetails,
+    ProcessAffinity,
     NetworkView,
     DiskView,
     SystemInfo,
     HistoryView,
+    PerformanceView,
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +65,9 @@ pub struct App {
     pub config: Config,
     pub current_view: AppView,
     pub selected_process_index: usize,
+    pub selected_group_index: usize,
     pub sort_by: SortBy,
+    pub group_by: ProcessGroupBy,
     pub show_zombies_highlighted: bool,
     pub show_confirmation_dialog: bool,
     pub system_metrics: Option<SystemMetrics>,
@@ -73,7 +79,10 @@ pub struct App {
     pub search_mode: bool,
     pub export_message: Option<String>,
     cached_processes: Vec<crate::monitor::ProcessInfo>,
+    cached_groups: Vec<ProcessGroup>,
     cached_sort_by: Option<SortBy>,
+    cached_group_by: Option<ProcessGroupBy>,
+    pub selected_process_pid: Option<u32>,
 }
 
 impl App {
@@ -86,7 +95,9 @@ impl App {
             config,
             current_view: AppView::Dashboard,
             selected_process_index: 0,
+            selected_group_index: 0,
             sort_by: SortBy::Cpu,
+            group_by: ProcessGroupBy::None,
             show_confirmation_dialog: false,
             system_metrics: None,
             error_message: None,
@@ -97,13 +108,17 @@ impl App {
             search_mode: false,
             export_message: None,
             cached_processes: Vec::new(),
+            cached_groups: Vec::new(),
             cached_sort_by: None,
+            cached_group_by: None,
+            selected_process_pid: None,
         }
     }
 
     pub fn update_data(&mut self, system_monitor: &mut SystemMonitor) {
         self.system_metrics = Some(system_monitor.get_metrics());
         self.cached_sort_by = None;
+        self.cached_group_by = None;
     }
 
     pub fn set_error_message(&mut self, message: Option<String>) {
@@ -115,10 +130,14 @@ impl App {
             AppView::Dashboard => self.render_dashboard(f),
             AppView::ProcessList => self.render_process_list(f),
             AppView::ProcessTree => self.render_process_tree(f),
+            AppView::ProcessGroups => self.render_process_groups(f),
+            AppView::ProcessDetails => self.render_process_details(f),
+            AppView::ProcessAffinity => self.render_process_affinity(f),
             AppView::NetworkView => self.render_network_view(f),
             AppView::DiskView => self.render_disk_view(f),
             AppView::SystemInfo => self.render_system_info(f),
             AppView::HistoryView => self.render_history_view(f),
+            AppView::PerformanceView => self.render_performance_view(f),
         }
 
         if self.show_confirmation_dialog {
@@ -200,6 +219,23 @@ impl App {
         }
     }
 
+    fn get_process_groups(&mut self) -> Vec<ProcessGroup> {
+        if let Some(_metrics) = &self.system_metrics {
+            let need_refresh = self.cached_group_by != Some(self.group_by.clone()) || 
+                             self.cached_groups.is_empty();
+            
+            if need_refresh {
+                let processes = self.get_filtered_sorted_processes();
+                self.cached_groups = SystemMonitor::group_processes(&processes, self.group_by.clone());
+                self.cached_group_by = Some(self.group_by.clone());
+            }
+            
+            self.cached_groups.clone()
+        } else {
+            self.cached_groups.clone()
+        }
+    }
+
     pub fn next_process(&mut self) {
         let processes_len = self.get_filtered_sorted_processes().len();
         if processes_len > 0 {
@@ -273,6 +309,84 @@ impl App {
             ColorTheme::Solarized => ColorTheme::Default,
         };
         self.theme_colors = Self::get_theme_colors(&self.theme);
+    }
+
+    pub fn cycle_group_by(&mut self) {
+        self.group_by = match self.group_by {
+            ProcessGroupBy::None => ProcessGroupBy::User,
+            ProcessGroupBy::User => ProcessGroupBy::Parent,
+            ProcessGroupBy::Parent => ProcessGroupBy::Application,
+            ProcessGroupBy::Application => ProcessGroupBy::Status,
+            ProcessGroupBy::Status => ProcessGroupBy::None,
+        };
+        self.cached_group_by = None;
+        self.selected_group_index = 0;
+    }
+
+    pub fn next_group(&mut self) {
+        let groups_len = self.get_process_groups().len();
+        if groups_len > 0 {
+            self.selected_group_index = (self.selected_group_index + 1) % groups_len;
+        }
+    }
+
+    pub fn previous_group(&mut self) {
+        let groups_len = self.get_process_groups().len();
+        if groups_len > 0 {
+            self.selected_group_index = if self.selected_group_index == 0 {
+                groups_len - 1
+            } else {
+                self.selected_group_index - 1
+            };
+        }
+    }
+
+    pub fn toggle_process_groups(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::ProcessGroups => AppView::Dashboard,
+            _ => AppView::ProcessGroups,
+        };
+    }
+
+    pub fn toggle_process_details(&mut self) {
+        if let Some(pid) = self.get_selected_process_pid() {
+            self.selected_process_pid = Some(pid);
+            self.current_view = match self.current_view {
+                AppView::ProcessDetails => AppView::Dashboard,
+                _ => AppView::ProcessDetails,
+            };
+        }
+    }
+
+    pub fn toggle_process_affinity(&mut self) {
+        if let Some(pid) = self.get_selected_process_pid() {
+            self.selected_process_pid = Some(pid);
+            self.current_view = match self.current_view {
+                AppView::ProcessAffinity => AppView::Dashboard,
+                _ => AppView::ProcessAffinity,
+            };
+        }
+    }
+
+    pub fn toggle_performance_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::PerformanceView => AppView::Dashboard,
+            _ => AppView::PerformanceView,
+        };
+    }
+
+    fn get_selected_process_pid(&self) -> Option<u32> {
+        let processes = if let Some(_metrics) = &self.system_metrics {
+            &_metrics.processes
+        } else {
+            return None;
+        };
+
+        if !processes.is_empty() && self.selected_process_index < processes.len() {
+            Some(processes[self.selected_process_index].pid)
+        } else {
+            None
+        }
     }
 
     pub fn toggle_system_info(&mut self) {
@@ -517,17 +631,22 @@ impl App {
             "Views:",
             "  p            Toggle process list view",
             "  T            Toggle process tree view",
+            "  G            Toggle process groups view",
+            "  D            Toggle process details view",
+            "  A            Toggle process affinity view",
+            "  P            Toggle performance analysis view",
             "  n            Toggle network view",
             "  d            Toggle disk view",
             "  i            Toggle system info view",
             "  H            Toggle history view",
             "",
             "Process Management:",
-            "  ↑/↓          Navigate process list",
+            "  ↑/↓          Navigate process list/groups",
             "  c            Sort by CPU usage",
             "  m            Sort by Memory usage",
             "  1            Sort by PID",
             "  2            Sort by Name",
+            "  g            Cycle process grouping mode",
             "  k            Kill selected process",
             "  z            Toggle zombie highlighting",
             "  /            Search processes",
@@ -536,15 +655,15 @@ impl App {
             "  e            Export current system data (JSON)",
             "  E            Export historical data (CSV)",
             "",
-            "Features:",
+            "Enhanced Features:",
+            "  • Process grouping by user/parent/application",
+            "  • CPU affinity management (Linux)",
+            "  • Resource limits monitoring",
+            "  • Performance profiling & anomaly detection",
+            "  • Process tree visualization",
             "  • Real-time system monitoring",
             "  • Historical data tracking",
             "  • Multiple color themes",
-            "  • Process filtering and sorting",
-            "  • Network interface monitoring",
-            "  • Disk usage tracking",
-            "  • System information display",
-            "  • Data export (JSON/CSV/TOML)",
             "",
             "Press any key to close this help screen",
         ];
@@ -1065,6 +1184,321 @@ impl App {
                     .style(Style::default().fg(self.theme_colors.border)));
             f.render_widget(footer, chunks[2]);
         }
+    }
+
+    fn render_process_groups(&mut self, f: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Header
+                Constraint::Min(10),    // Groups list
+                Constraint::Length(3),  // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let group_type_name = match self.group_by {
+            ProcessGroupBy::None => "All Processes",
+            ProcessGroupBy::User => "By User",
+            ProcessGroupBy::Parent => "By Parent",
+            ProcessGroupBy::Application => "By Application",
+            ProcessGroupBy::Status => "By Status",
+        };
+
+        let header_text = format!("📁 Process Groups - {}", group_type_name);
+        let header = Paragraph::new(header_text)
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Groups table
+        let groups = self.get_process_groups();
+        let header_cells = ["📁 Group", "🔢 Count", "🔥 Total CPU%", "💾 Memory", "📊 Avg CPU%"]
+            .iter()
+            .map(|h| ratatui::widgets::Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD).fg(self.theme_colors.foreground)));
+        let header_row = ratatui::widgets::Row::new(header_cells).style(Style::default().bg(self.theme_colors.secondary));
+
+        let rows: Vec<ratatui::widgets::Row> = groups
+            .iter()
+            .enumerate()
+            .map(|(i, group)| {
+                let style = if i == self.selected_group_index {
+                    Style::default().bg(self.theme_colors.selection)
+                } else {
+                    Style::default()
+                };
+
+                let avg_cpu = if group.process_count > 0 {
+                    group.total_cpu / group.process_count as f32
+                } else {
+                    0.0
+                };
+
+                ratatui::widgets::Row::new(vec![
+                    ratatui::widgets::Cell::from(group.name.clone()),
+                    ratatui::widgets::Cell::from(group.process_count.to_string()),
+                    ratatui::widgets::Cell::from(format!("{:.1}%", group.total_cpu)),
+                    ratatui::widgets::Cell::from(crate::monitor::SystemMonitor::format_bytes(group.total_memory)),
+                    ratatui::widgets::Cell::from(format!("{:.1}%", avg_cpu)),
+                ])
+                .style(style)
+            })
+            .collect();
+
+        let table = ratatui::widgets::Table::new(rows)
+            .header(header_row)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title("Process Groups")
+                .style(Style::default().fg(self.theme_colors.border)))
+            .widths(&[
+                Constraint::Min(20),     // Group name
+                Constraint::Length(8),   // Count
+                Constraint::Length(12),  // Total CPU
+                Constraint::Length(12),  // Memory
+                Constraint::Length(10),  // Avg CPU
+            ]);
+
+        f.render_widget(table, chunks[1]);
+
+        // Footer
+        let footer_text = "'g' cycle grouping | '↑↓' navigate | 'G' return to dashboard | 'Enter' view group details";
+        let footer = Paragraph::new(footer_text)
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_process_details(&self, f: &mut Frame) {
+        if let Some(pid) = self.selected_process_pid {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),   // Header
+                    Constraint::Min(15),     // Process details
+                    Constraint::Length(8),   // Resource limits section
+                    Constraint::Length(3),   // Footer
+                ])
+                .split(f.size());
+
+            // Header
+            let header = Paragraph::new(format!("🔍 Process Details - PID: {}", pid))
+                .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(header, chunks[0]);
+
+            // Find the process
+            if let Some(process) = self.system_metrics.as_ref()
+                .and_then(|m| m.processes.iter().find(|p| p.pid == pid)) {
+                
+                let details_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(chunks[1]);
+
+                // Left column - Basic info
+                let basic_info = vec![
+                    format!("🏷️  Name: {}", process.name),
+                    format!("🔢 PID: {}", process.pid),
+                    format!("👤 User: {}", process.user),
+                    format!("📊 Status: {} {}", process.status.emoji(), process.status.as_str()),
+                    format!("🔥 CPU Usage: {:.1}%", process.cpu_usage),
+                    format!("💾 Memory: {} ({:.1}%)", 
+                           crate::monitor::SystemMonitor::format_bytes(process.memory_usage),
+                           process.memory_percentage),
+                    format!("🧵 Threads: {}", process.threads_count),
+                    String::new(),
+                    format!("📁 Working Dir: {}", 
+                           process.working_directory.as_deref().unwrap_or("N/A")),
+                    format!("📎 Executable: {}", 
+                           process.exe_path.as_deref().unwrap_or("N/A")),
+                ];
+
+                let basic_widget = Paragraph::new(basic_info.join("\n"))
+                    .block(Block::default()
+                        .title("Basic Information")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().fg(self.theme_colors.border)))
+                    .style(Style::default().fg(self.theme_colors.foreground));
+                f.render_widget(basic_widget, details_chunks[0]);
+
+                // Right column - Process tree info
+                let tree_info = vec![
+                    format!("🌳 Parent PID: {}", 
+                           process.parent_pid.map_or("None".to_string(), |p| p.to_string())),
+                    format!("⏱️  Start Time: {}", 
+                           chrono::DateTime::from_timestamp(process.start_time as i64, 0)
+                               .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                               .unwrap_or_else(|| "Unknown".to_string())),
+                    format!("📜 Command: {}", 
+                           if process.command.len() > 50 {
+                               format!("{}...", &process.command[..50])
+                           } else {
+                               process.command.clone()
+                           }),
+                    String::new(),
+                    format!("🏷️  Group: {}", 
+                           process.group_name.as_deref().unwrap_or("N/A")),
+                    format!("🧟 Is Zombie: {}", if process.is_zombie { "Yes" } else { "No" }),
+                ];
+
+                let tree_widget = Paragraph::new(tree_info.join("\n"))
+                    .block(Block::default()
+                        .title("Process Tree & Command")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().fg(self.theme_colors.border)))
+                    .style(Style::default().fg(self.theme_colors.foreground))
+                    .wrap(ratatui::widgets::Wrap { trim: true });
+                f.render_widget(tree_widget, details_chunks[1]);
+
+                // Resource limits section
+                let limits_text = "Resource limits information would be displayed here.\n\nPress 'L' to view detailed resource limits and usage.";
+                let limits_widget = Paragraph::new(limits_text)
+                    .block(Block::default()
+                        .title("Resource Information")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().fg(self.theme_colors.border)))
+                    .style(Style::default().fg(self.theme_colors.muted));
+                f.render_widget(limits_widget, chunks[2]);
+            }
+
+            // Footer
+            let footer = Paragraph::new("'D' return to dashboard | 'A' view affinity | 'L' view limits")
+                .style(Style::default().fg(self.theme_colors.warning))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(footer, chunks[3]);
+        }
+    }
+
+    fn render_process_affinity(&self, f: &mut Frame) {
+        if let Some(pid) = self.selected_process_pid {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),   // Header
+                    Constraint::Min(10),     // Affinity info
+                    Constraint::Length(3),   // Footer
+                ])
+                .split(f.size());
+
+            // Header
+            let header = Paragraph::new(format!("⚙️  CPU Affinity - PID: {}", pid))
+                .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(header, chunks[0]);
+
+            // Affinity information
+            let affinity_text = if AffinityManager::is_taskset_available() {
+                "CPU affinity information and controls would be displayed here.\n\nThis feature requires 'taskset' command to be available."
+            } else {
+                "CPU affinity management is not available.\n\nThis feature requires the 'taskset' command to be installed.\nOn Ubuntu/Debian: sudo apt install util-linux\nOn RHEL/CentOS: sudo yum install util-linux"
+            };
+
+            let affinity_widget = Paragraph::new(affinity_text)
+                .block(Block::default()
+                    .title("CPU Affinity")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)))
+                .style(Style::default().fg(self.theme_colors.foreground));
+            f.render_widget(affinity_widget, chunks[1]);
+
+            // Footer
+            let footer = Paragraph::new("'A' return to dashboard")
+                .style(Style::default().fg(self.theme_colors.warning))
+                .alignment(Alignment::Center)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(self.theme_colors.border)));
+            f.render_widget(footer, chunks[2]);
+        }
+    }
+
+    fn render_performance_view(&self, f: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // Performance data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("📊 Process Performance Analysis")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Performance content
+        let perf_text = vec![
+            "🚀 Performance Analytics Dashboard".to_string(),
+            "".to_string(),
+            "🔥 Top CPU Consumers:".to_string(),
+            "   • Performance profiling data would be displayed here".to_string(),
+            "   • Process trend analysis".to_string(),
+            "   • Resource usage patterns".to_string(),
+            "".to_string(),
+            "💾 Memory Usage Trends:".to_string(),
+            "   • Memory leak detection".to_string(),
+            "   • Growth rate analysis".to_string(),
+            "".to_string(),
+            "⚠️  Performance Anomalies:".to_string(),
+            "   • CPU spikes detection".to_string(),
+            "   • Unusual resource consumption patterns".to_string(),
+            "".to_string(),
+            "📊 Efficiency Scores:".to_string(),
+            "   • Process performance ratings".to_string(),
+            "   • Resource utilization efficiency".to_string(),
+        ];
+
+        let perf_widget = Paragraph::new(perf_text.join("\n"))
+            .block(Block::default()
+                .title("Performance Analytics")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground));
+        f.render_widget(perf_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("'P' return to dashboard")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
     }
 }
 

@@ -5,6 +5,9 @@ pub mod storage;
 pub mod history;
 pub mod export;
 pub mod process_tree;
+pub mod affinity;
+pub mod limits;
+pub mod performance;
 
 use anyhow::Result;
 use sysinfo::{System, Networks, Disks};
@@ -19,6 +22,9 @@ pub use storage::*;
 pub use history::*;
 pub use export::*;
 pub use process_tree::*;
+pub use affinity::*;
+pub use limits::*;
+pub use performance::*;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SystemMetrics {
@@ -63,6 +69,7 @@ pub struct SystemMonitor {
     disks: Disks,
     previous_network_data: HashMap<String, (u64, u64)>,
     pub history: HistoryManager,
+    pub profiler: PerformanceProfiler,
 }
 
 impl SystemMonitor {
@@ -76,6 +83,7 @@ impl SystemMonitor {
             disks: Disks::new_with_refreshed_list(),
             previous_network_data: HashMap::new(),
             history: HistoryManager::new(1440), // Store 24 hours of data (1 minute intervals)
+            profiler: PerformanceProfiler::new(),
         }
     }
 
@@ -91,10 +99,21 @@ impl SystemMonitor {
     }
 
     pub fn get_metrics(&mut self) -> SystemMetrics {
+        let processes = self.get_process_info();
+        
+        // Update performance profiler
+        for process in &processes {
+            self.profiler.update_process(process);
+        }
+        
+        // Clean up old profiles
+        let active_pids: Vec<u32> = processes.iter().map(|p| p.pid).collect();
+        self.profiler.cleanup_old_profiles(&active_pids);
+        
         let metrics = SystemMetrics {
             cpu: self.get_cpu_metrics(),
             memory: self.get_memory_metrics(),
-            processes: self.get_process_info(),
+            processes,
             network: self.get_network_metrics(),
             storage: self.get_storage_info(),
             uptime: System::uptime(),

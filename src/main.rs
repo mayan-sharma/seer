@@ -100,12 +100,27 @@ async fn run_app(
                     KeyCode::Char('i') => app.toggle_system_info(),
                     KeyCode::Char('H') => app.toggle_history_view(),
                     KeyCode::Char('T') => app.toggle_process_tree(),
+                    KeyCode::Char('G') => app.toggle_process_groups(),
+                    KeyCode::Char('D') => app.toggle_process_details(),
+                    KeyCode::Char('A') => app.toggle_process_affinity(),
+                    KeyCode::Char('P') => app.toggle_performance_view(),
+                    KeyCode::Char('g') => app.cycle_group_by(),
                     KeyCode::Char('z') => app.toggle_zombie_highlighting(),
                     KeyCode::Char('h') | KeyCode::Char('?') => app.toggle_help(),
                     KeyCode::Char('t') => app.cycle_theme(),
                     KeyCode::Char('/') => app.toggle_search(),
-                    KeyCode::Up => app.previous_process(),
-                    KeyCode::Down => app.next_process(),
+                    KeyCode::Up => {
+                        match app.current_view {
+                            seer::ui::AppView::ProcessGroups => app.previous_group(),
+                            _ => app.previous_process(),
+                        }
+                    },
+                    KeyCode::Down => {
+                        match app.current_view {
+                            seer::ui::AppView::ProcessGroups => app.next_group(),
+                            _ => app.next_process(),
+                        }
+                    },
                     KeyCode::Char('c') => app.sort_by_cpu(),
                     KeyCode::Char('m') => app.sort_by_memory(),
                     KeyCode::Char('1') => app.sort_by_pid(),

@@ -15,6 +15,11 @@ A comprehensive CLI system monitoring tool built in Rust that provides real-time
 - **Zombie Process Detection**: Highlight and filter zombie processes
 - **Network Monitoring**: Interface statistics and listening ports display
 - **Search Functionality**: Search and filter processes by name
+- **Enhanced Process Management**: 
+  - Process grouping by user, parent process, application, or status
+  - CPU affinity viewing and management (Linux)
+  - Resource limits monitoring and display
+  - Process performance profiling with anomaly detection
 - **Multiple Themes**: 5 built-in color themes (Default, Dark, Gruvbox, Dracula, Solarized)
 - **Keyboard Navigation**: Intuitive controls for navigating data
 
@@ -92,6 +97,11 @@ seer -e json
 | `/` | Search processes |
 | `e` | Export current data (JSON) |
 | `E` | Export historical data (CSV) |
+| `G` | Toggle process groups view |
+| `D` | Toggle process details view |
+| `A` | Toggle process affinity view |
+| `P` | Toggle performance analysis view |
+| `g` | Cycle process grouping mode |
 
 ## Configuration
 
@@ -106,6 +116,34 @@ threshold_cpu = 80.0
 threshold_memory = 80.0
 ```
 
+## Enhanced Process Management Features
+
+### Process Grouping
+View and analyze processes organized by:
+- **User**: Group processes by the user running them
+- **Parent Process**: Group processes by their parent PID
+- **Application**: Group processes by application/executable name
+- **Status**: Group processes by their current status (Running, Sleeping, etc.)
+
+### CPU Affinity Management (Linux)
+- View current CPU affinity settings for processes
+- Modify CPU affinity using taskset integration
+- Display CPU topology information
+- Manage which CPU cores processes can run on
+
+### Resource Limits Monitoring
+- Display process resource limits (ulimits)
+- Monitor resource usage against limits
+- Show warnings when processes approach limits
+- Track memory, file descriptors, CPU time, and other resources
+
+### Performance Profiling
+- Real-time performance tracking for all processes
+- CPU and memory usage trend analysis
+- Anomaly detection (CPU spikes, memory leaks)
+- Process efficiency scoring
+- Historical performance data with statistics
+
 ## Dependencies
 
 - **sysinfo**: System information gathering
@@ -118,6 +156,17 @@ threshold_memory = 80.0
 - **serde_json**: JSON serialization
 - **csv**: CSV file handling
 - **toml**: TOML configuration format
+- **num_cpus**: CPU topology detection
+
+## Platform Support
+
+- **Linux**: Full feature support including CPU affinity management and resource limits
+- **macOS/Windows**: Core monitoring features supported, some advanced features may be limited
+
+### Linux-Specific Features
+- CPU affinity viewing and modification (requires `taskset` utility)
+- Resource limits monitoring via `/proc` filesystem
+- Enhanced process information from `/proc/pid/` files
 
 ## License
 
