@@ -101,6 +101,11 @@ seer -e json
 | `D` | Toggle process details view |
 | `A` | Toggle process affinity view |
 | `P` | Toggle performance analysis view |
+| `M` | Toggle memory leak detection |
+| `I` | Toggle I/O bottleneck analysis |
+| `R` | Toggle thermal monitoring |
+| `N` | Toggle dependency analysis |
+| `U` | Toggle GPU monitoring |
 | `g` | Cycle process grouping mode |
 
 ## Configuration

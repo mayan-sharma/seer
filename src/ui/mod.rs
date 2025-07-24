@@ -26,6 +26,11 @@ pub enum AppView {
     SystemInfo,
     HistoryView,
     PerformanceView,
+    ThermalView,
+    DependencyView,
+    MemoryLeakView,
+    IOAnalysisView,
+    GPUMonitorView,
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +130,7 @@ impl App {
         self.error_message = message;
     }
 
-    pub fn render(&mut self, f: &mut Frame) {
+    pub fn render(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
         match self.current_view {
             AppView::Dashboard => self.render_dashboard(f),
             AppView::ProcessList => self.render_process_list(f),
@@ -138,6 +143,11 @@ impl App {
             AppView::SystemInfo => self.render_system_info(f),
             AppView::HistoryView => self.render_history_view(f),
             AppView::PerformanceView => self.render_performance_view(f),
+            AppView::ThermalView => self.render_thermal_view(f, system_monitor),
+            AppView::DependencyView => self.render_dependency_view(f, system_monitor),
+            AppView::MemoryLeakView => self.render_memory_leak_view(f, system_monitor),
+            AppView::IOAnalysisView => self.render_io_analysis_view(f, system_monitor),
+            AppView::GPUMonitorView => self.render_gpu_monitor_view(f, system_monitor),
         }
 
         if self.show_confirmation_dialog {
@@ -372,6 +382,41 @@ impl App {
         self.current_view = match self.current_view {
             AppView::PerformanceView => AppView::Dashboard,
             _ => AppView::PerformanceView,
+        };
+    }
+
+    pub fn toggle_thermal_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::ThermalView => AppView::Dashboard,
+            _ => AppView::ThermalView,
+        };
+    }
+
+    pub fn toggle_dependency_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::DependencyView => AppView::Dashboard,
+            _ => AppView::DependencyView,
+        };
+    }
+
+    pub fn toggle_memory_leak_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::MemoryLeakView => AppView::Dashboard,
+            _ => AppView::MemoryLeakView,
+        };
+    }
+
+    pub fn toggle_io_analysis_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::IOAnalysisView => AppView::Dashboard,
+            _ => AppView::IOAnalysisView,
+        };
+    }
+
+    pub fn toggle_gpu_monitor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::GPUMonitorView => AppView::Dashboard,
+            _ => AppView::GPUMonitorView,
         };
     }
 
@@ -640,6 +685,13 @@ impl App {
             "  i            Toggle system info view",
             "  H            Toggle history view",
             "",
+            "Advanced Analysis:",
+            "  M            Toggle memory leak detection",
+            "  I            Toggle I/O bottleneck analysis",
+            "  R            Toggle thermal monitoring",
+            "  N            Toggle dependency analysis",
+            "  U            Toggle GPU monitoring",
+            "",
             "Process Management:",
             "  ↑/↓          Navigate process list/groups",
             "  c            Sort by CPU usage",
@@ -664,6 +716,11 @@ impl App {
             "  • Real-time system monitoring",
             "  • Historical data tracking",
             "  • Multiple color themes",
+            "  • CPU temperature monitoring",
+            "  • Memory leak detection with trend analysis",
+            "  • I/O bottleneck analysis and IOPS monitoring",
+            "  • Process dependency mapping",
+            "  • GPU monitoring (NVIDIA/AMD/Intel)",
             "",
             "Press any key to close this help screen",
         ];
@@ -1492,6 +1549,676 @@ impl App {
 
         // Footer
         let footer = Paragraph::new("'P' return to dashboard")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_thermal_view(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // Thermal data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("🌡️  Thermal Monitoring")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Thermal content - show real data
+        let mut thermal_content = vec![
+            "🔥 System Thermal Status".to_string(),
+            "".to_string(),
+        ];
+
+        // Get CPU temperature from metrics
+        if let Some(metrics) = &self.system_metrics {
+            let temp_text = if let Some(temp) = metrics.cpu.temperature {
+                let temp_color = if temp > 80.0 { "⚠️ " } else if temp > 70.0 { "🔶 " } else { "✅ " };
+                format!("{}CPU Temperature: {:.1}°C", temp_color, temp)
+            } else {
+                "❌ CPU Temperature: Not available".to_string()
+            };
+            thermal_content.push(temp_text);
+        }
+
+        // Get detailed thermal information
+        if let Ok(thermal_metrics) = system_monitor.thermal_monitor.get_thermal_metrics() {
+            thermal_content.push("".to_string());
+            thermal_content.push("🌡️  CPU Core Temperatures:".to_string());
+            
+            if thermal_metrics.cpu_temperatures.is_empty() {
+                thermal_content.push("   • No individual core temperatures available".to_string());
+            } else {
+                for temp_info in &thermal_metrics.cpu_temperatures {
+                    let temp_status = if temp_info.temperature > 80.0 { 
+                        "⚠️ " 
+                    } else if temp_info.temperature > 70.0 { 
+                        "🔶 " 
+                    } else { 
+                        "✅ " 
+                    };
+                    thermal_content.push(format!("   {}Core {}: {:.1}°C", 
+                        temp_status, temp_info.core_id, temp_info.temperature));
+                }
+            }
+
+            thermal_content.push("".to_string());
+            thermal_content.push("🏠 Thermal Zones:".to_string());
+            
+            if thermal_metrics.thermal_zones.is_empty() {
+                thermal_content.push("   • No thermal zones detected".to_string());
+            } else {
+                for zone in &thermal_metrics.thermal_zones {
+                    let zone_status = if zone.temperature > 80.0 { 
+                        "⚠️ " 
+                    } else if zone.temperature > 70.0 { 
+                        "🔶 " 
+                    } else { 
+                        "✅ " 
+                    };
+                    thermal_content.push(format!("   {}{}: {:.1}°C ({})", 
+                        zone_status, zone.zone_type, zone.temperature, zone.policy));
+                }
+            }
+
+            thermal_content.push("".to_string());
+            thermal_content.push("💨 Cooling Devices:".to_string());
+            
+            if thermal_metrics.cooling_devices.is_empty() {
+                thermal_content.push("   • No cooling devices detected".to_string());
+            } else {
+                for device in &thermal_metrics.cooling_devices {
+                    let activity = if device.current_state > 0 { "🔄 Active" } else { "💤 Idle" };
+                    thermal_content.push(format!("   • {}: {} ({}/{})", 
+                        device.device_type, activity, device.current_state, device.max_state));
+                }
+            }
+        } else {
+            thermal_content.push("".to_string());
+            thermal_content.push("❌ Unable to read detailed thermal information".to_string());
+            thermal_content.push("   • Requires access to /sys/class/thermal".to_string());
+            thermal_content.push("   • May need elevated permissions".to_string());
+        }
+
+        thermal_content.push("".to_string());
+        thermal_content.push("💡 Temperature Guidelines:".to_string());
+        thermal_content.push("   • ✅ <70°C: Normal operating temperature".to_string());
+        thermal_content.push("   • 🔶 70-80°C: Elevated temperature".to_string());
+        thermal_content.push("   • ⚠️  >80°C: High temperature - check cooling".to_string());
+
+        let thermal_widget = Paragraph::new(thermal_content.join("\n"))
+            .block(Block::default()
+                .title("Thermal Information")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(thermal_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press any key to return to dashboard")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_dependency_view(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // Dependency data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("🔗 Process Dependencies")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Dependency content - show real data
+        let mut dep_content = vec![
+            "🌐 Process Dependency Analysis".to_string(),
+            "".to_string(),
+        ];
+
+        // Analyze dependencies for current processes
+        if let Some(metrics) = &self.system_metrics {
+            match system_monitor.dependency_analyzer.analyze_dependencies(&metrics.processes) {
+                Ok(graph) => {
+                    dep_content.push(format!("✅ Analyzed {} processes", graph.processes.len()));
+                    dep_content.push("".to_string());
+                    
+                    // Show shared libraries summary
+                    dep_content.push(format!("📚 Shared Libraries ({} total):", graph.shared_libraries.len()));
+                    let mut lib_usage: Vec<_> = graph.shared_libraries.iter().collect();
+                    lib_usage.sort_by(|a, b| b.1.processes_using.len().cmp(&a.1.processes_using.len()));
+                    
+                    for (lib_path, lib_info) in lib_usage.iter().take(8) {
+                        let lib_name = lib_path.split('/').last().unwrap_or(lib_path);
+                        let size_str = if lib_info.size > 0 {
+                            format!(" ({})", crate::monitor::SystemMonitor::format_bytes(lib_info.size))
+                        } else {
+                            String::new()
+                        };
+                        let system_indicator = if lib_info.is_system_lib { "🏛️" } else { "📦" };
+                        dep_content.push(format!("   {}{}: {} processes{}", 
+                            system_indicator, lib_name, lib_info.processes_using.len(), size_str));
+                    }
+                    
+                    if graph.shared_libraries.len() > 8 {
+                        dep_content.push(format!("   ... and {} more libraries", graph.shared_libraries.len() - 8));
+                    }
+                    dep_content.push("".to_string());
+                    
+                    // Show dependency chains
+                    if !graph.dependency_chains.is_empty() {
+                        dep_content.push(format!("🌳 Dependency Chains ({} total):", graph.dependency_chains.len()));
+                        for chain in graph.dependency_chains.iter().take(6) {
+                            dep_content.push(format!("   • Root PID {}: {} processes deep", 
+                                chain.root_pid, chain.depth));
+                            if !chain.shared_resources.is_empty() {
+                                dep_content.push(format!("     Shared resources: {}", 
+                                    chain.shared_resources.len()));
+                            }
+                        }
+                        if graph.dependency_chains.len() > 6 {
+                            dep_content.push(format!("   ... and {} more chains", graph.dependency_chains.len() - 6));
+                        }
+                        dep_content.push("".to_string());
+                    }
+                    
+                    // Show circular dependencies
+                    if graph.circular_dependencies.is_empty() {
+                        dep_content.push("✅ No circular dependencies detected".to_string());
+                    } else {
+                        dep_content.push(format!("⚠️  {} circular dependencies detected:", graph.circular_dependencies.len()));
+                        for circular in graph.circular_dependencies.iter().take(5) {
+                            dep_content.push(format!("   • {} processes sharing {}", 
+                                circular.processes.len(), circular.resource));
+                            dep_content.push(format!("     Type: {} (PIDs: {:?})", 
+                                circular.dependency_type, circular.processes));
+                        }
+                        if graph.circular_dependencies.len() > 5 {
+                            dep_content.push(format!("   ... and {} more circular dependencies", graph.circular_dependencies.len() - 5));
+                        }
+                    }
+                    dep_content.push("".to_string());
+                    
+                    // Show critical processes (high dependency impact)
+                    let mut critical_processes = Vec::new();
+                    for (pid, _) in &graph.processes {
+                        let impact = system_monitor.dependency_analyzer.get_dependency_impact(*pid, &graph);
+                        if impact > 3 {
+                            critical_processes.push((*pid, impact));
+                        }
+                    }
+                    
+                    if !critical_processes.is_empty() {
+                        critical_processes.sort_by(|a, b| b.1.cmp(&a.1));
+                        dep_content.push("🚨 Critical Processes (high dependency impact):".to_string());
+                        for (pid, impact) in critical_processes.iter().take(5) {
+                            if let Some(process) = metrics.processes.iter().find(|p| p.pid == *pid) {
+                                dep_content.push(format!("   • {} (PID: {}): {} dependent processes", 
+                                    process.name, pid, impact));
+                            }
+                        }
+                    } else {
+                        dep_content.push("✅ No highly critical dependency processes identified".to_string());
+                    }
+                },
+                Err(e) => {
+                    dep_content.extend(vec![
+                        "❌ Dependency analysis failed".to_string(),
+                        format!("   Error: {}", e),
+                        "".to_string(),
+                        "🔧 This feature requires:".to_string(),
+                        "   • Access to /proc filesystem".to_string(),
+                        "   • Read permissions for process information".to_string(),
+                        "   • Elevated privileges may be needed".to_string(),
+                    ]);
+                }
+            }
+        } else {
+            dep_content.extend(vec![
+                "⏳ Waiting for process data...".to_string(),
+                "   • Dependency analysis will start once processes are loaded".to_string(),
+            ]);
+        }
+
+        let dep_widget = Paragraph::new(dep_content.join("\n"))
+            .block(Block::default()
+                .title("Dependency Analysis")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(dep_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press any key to return to dashboard")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_memory_leak_view(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // Memory leak data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("🔍 Memory Leak Detection")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Memory leak content - show real data
+        let mut leak_content = vec![
+            "🚨 Memory Leak Detection & Analysis".to_string(),
+            "".to_string(),
+        ];
+
+        // Get memory leak alerts
+        let alerts = system_monitor.memory_leak_detector.get_alerts();
+        
+        if alerts.is_empty() {
+            leak_content.extend(vec![
+                "✅ No memory leaks detected".to_string(),
+                "".to_string(),
+                "📊 Detection Status:".to_string(),
+                "   • All processes showing normal memory usage".to_string(),
+                "   • Continuous monitoring active".to_string(),
+                "   • Historical data being collected".to_string(),
+            ]);
+        } else {
+            leak_content.push(format!("⚠️  {} active memory leak alert(s)", alerts.len()));
+            leak_content.push("".to_string());
+            
+            // Show recent alerts (limit to 10 most recent)
+            for alert in alerts.iter().rev().take(10) {
+                let severity_icon = match alert.severity {
+                    crate::monitor::LeakSeverity::Critical => "🔴",
+                    crate::monitor::LeakSeverity::High => "🟠",
+                    crate::monitor::LeakSeverity::Medium => "🟡",
+                    crate::monitor::LeakSeverity::Low => "🟢",
+                };
+                
+                let alert_type = match alert.alert_type {
+                    crate::monitor::LeakAlertType::SteadyGrowth => "Steady Growth",
+                    crate::monitor::LeakAlertType::RapidIncrease => "Rapid Increase",
+                    crate::monitor::LeakAlertType::MemorySpike => "Memory Spike",
+                    crate::monitor::LeakAlertType::SuspiciousPattern => "Suspicious Pattern",
+                    crate::monitor::LeakAlertType::FragmentationIncrease => "Fragmentation",
+                };
+
+                leak_content.push(format!("{} {} (PID: {})", severity_icon, alert.process_name, alert.pid));
+                leak_content.push(format!("   • Type: {}", alert_type));
+                leak_content.push(format!("   • Growth Rate: {:.2} MB/min", alert.growth_rate));
+                leak_content.push(format!("   • Current Memory: {}", 
+                    crate::monitor::SystemMonitor::format_bytes(alert.current_memory)));
+                leak_content.push(format!("   • Suggestion: {}", alert.suggested_action));
+                leak_content.push("".to_string());
+            }
+            
+            if alerts.len() > 10 {
+                leak_content.push(format!("... and {} more alerts", alerts.len() - 10));
+                leak_content.push("".to_string());
+            }
+        }
+
+        // Show some statistics
+        if let Some(metrics) = &self.system_metrics {
+            leak_content.push("📈 System Memory Overview:".to_string());
+            leak_content.push(format!("   • Total RAM: {}", 
+                crate::monitor::SystemMonitor::format_bytes(metrics.memory.total_ram)));
+            leak_content.push(format!("   • Used RAM: {} ({:.1}%)", 
+                crate::monitor::SystemMonitor::format_bytes(metrics.memory.used_ram),
+                metrics.memory.ram_percentage));
+            leak_content.push(format!("   • Available: {}", 
+                crate::monitor::SystemMonitor::format_bytes(metrics.memory.available_ram)));
+            leak_content.push("".to_string());
+        }
+
+        leak_content.extend(vec![
+            "🔧 Detection Algorithms Active:".to_string(),
+            "   • Steady growth pattern detection".to_string(),
+            "   • Rapid memory increase monitoring".to_string(),
+            "   • Memory spike identification".to_string(),
+            "   • Suspicious allocation patterns".to_string(),
+        ]);
+
+        let leak_widget = Paragraph::new(leak_content.join("\n"))
+            .block(Block::default()
+                .title("Memory Leak Analysis")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(leak_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press any key to return to dashboard")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_io_analysis_view(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // I/O analysis data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("📊 I/O Bottleneck Analysis")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // I/O analysis content - show real data
+        let mut io_content = vec![
+            "⚡ Disk I/O Performance Analysis".to_string(),
+            "".to_string(),
+        ];
+
+        // Get I/O bottleneck alerts
+        let bottleneck_alerts = system_monitor.io_bottleneck_analyzer.get_bottleneck_alerts();
+        
+        if bottleneck_alerts.is_empty() {
+            io_content.extend(vec![
+                "✅ No I/O bottlenecks detected".to_string(),
+                "".to_string(),
+                "📊 I/O Status:".to_string(),
+                "   • All disks performing normally".to_string(),
+                "   • No excessive I/O wait times".to_string(),
+                "   • System I/O load is manageable".to_string(),
+            ]);
+        } else {
+            io_content.push(format!("⚠️  {} I/O bottleneck alert(s) detected", bottleneck_alerts.len()));
+            io_content.push("".to_string());
+            
+            // Show recent alerts
+            for alert in bottleneck_alerts.iter().take(8) {
+                let severity_icon = match alert.severity {
+                    crate::monitor::BottleneckSeverity::Critical => "🔴",
+                    crate::monitor::BottleneckSeverity::High => "🟠",
+                    crate::monitor::BottleneckSeverity::Medium => "🟡",
+                    crate::monitor::BottleneckSeverity::Low => "🟢",
+                };
+                
+                let alert_type = match alert.alert_type {
+                    crate::monitor::BottleneckType::HighIOWait => "High I/O Wait",
+                    crate::monitor::BottleneckType::DiskSaturation => "Disk Saturation",
+                    crate::monitor::BottleneckType::ExcessiveRandomIO => "Excessive Random I/O",
+                    crate::monitor::BottleneckType::SingleProcessDominance => "Process Dominance",
+                    crate::monitor::BottleneckType::IOStorm => "I/O Storm",
+                    crate::monitor::BottleneckType::SlowDisk => "Slow Disk Response",
+                    crate::monitor::BottleneckType::IOContentionDetected => "I/O Contention",
+                };
+
+                io_content.push(format!("{} {}", severity_icon, alert_type));
+                io_content.push(format!("   • Source: {}", alert.bottleneck_source));
+                io_content.push(format!("   • IOPS: {:.0}", alert.metrics.iops));
+                io_content.push(format!("   • Disk Util: {:.1}%", alert.metrics.disk_utilization));
+                io_content.push(format!("   • Response: {:.1}ms", alert.metrics.avg_response_time_ms));
+                io_content.push("".to_string());
+            }
+        }
+
+        // Show current system I/O metrics
+        let system_io_history = system_monitor.io_bottleneck_analyzer.get_system_io_history();
+        if let Some(latest_snapshot) = system_io_history.back() {
+            io_content.push("📈 Current System I/O Metrics:".to_string());
+            io_content.push(format!("   • Total Read Rate: {:.1} MB/s", 
+                latest_snapshot.total_read_rate / (1024.0 * 1024.0)));
+            io_content.push(format!("   • Total Write Rate: {:.1} MB/s", 
+                latest_snapshot.total_write_rate / (1024.0 * 1024.0)));
+            io_content.push(format!("   • Operations/sec: {:.0}", latest_snapshot.io_operations_per_sec));
+            io_content.push(format!("   • Avg Response: {:.1}ms", latest_snapshot.average_wait_time));
+            io_content.push("".to_string());
+            
+            if !latest_snapshot.disk_utilization.is_empty() {
+                io_content.push("💽 Disk Utilization:".to_string());
+                for (disk, util) in &latest_snapshot.disk_utilization {
+                    let util_icon = if *util > 90.0 { "🔴" } else if *util > 70.0 { "🟡" } else { "🟢" };
+                    io_content.push(format!("   {}{}: {:.1}%", util_icon, disk, util));
+                }
+                io_content.push("".to_string());
+            }
+        } else {
+            io_content.extend(vec![
+                "📊 Collecting I/O performance data...".to_string(),
+                "   • System metrics will appear shortly".to_string(),
+                "   • Monitoring disk utilization".to_string(),
+                "   • Tracking I/O patterns".to_string(),
+                "".to_string(),
+            ]);
+        }
+
+        io_content.extend(vec![
+            "🔧 Monitoring Features:".to_string(),
+            "   • Real-time IOPS tracking".to_string(),
+            "   • Disk saturation detection".to_string(),
+            "   • Process I/O pattern analysis".to_string(),
+            "   • I/O storm identification".to_string(),
+        ]);
+
+        let io_widget = Paragraph::new(io_content.join("\n"))
+            .block(Block::default()
+                .title("I/O Performance Analysis")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(io_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press any key to return to dashboard")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_gpu_monitor_view(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // GPU data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("🎮 GPU Monitoring")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // GPU content - show real data
+        let mut gpu_content = vec![
+            "🎯 GPU Performance Monitoring".to_string(),
+            "".to_string(),
+        ];
+
+        // Check if GPU support is available
+        if !system_monitor.gpu_monitor.has_gpu_support() {
+            gpu_content.extend(vec![
+                "❌ No GPU support detected".to_string(),
+                "".to_string(),
+                "🔧 To enable GPU monitoring:".to_string(),
+                "   • Install nvidia-smi for NVIDIA GPUs".to_string(),
+                "   • Install ROCm tools for AMD GPUs".to_string(),
+                "   • Ensure proper drivers are installed".to_string(),
+                "".to_string(),
+                "📊 Supported Vendors:".to_string(),
+                "   • NVIDIA (requires nvidia-smi)".to_string(),
+                "   • AMD (requires ROCm tools)".to_string(),
+                "   • Intel (basic sysfs support)".to_string(),
+            ]);
+        } else {
+            let supported_vendors = system_monitor.gpu_monitor.get_supported_vendors();
+            gpu_content.push(format!("✅ GPU support available ({} vendor(s))", supported_vendors.len()));
+            gpu_content.push("".to_string());
+
+            // Show vendor support
+            gpu_content.push("🖥️  Detected GPU Vendors:".to_string());
+            for vendor in &supported_vendors {
+                let vendor_name = match vendor {
+                    crate::monitor::GPUVendor::NVIDIA => "NVIDIA",
+                    crate::monitor::GPUVendor::AMD => "AMD",
+                    crate::monitor::GPUVendor::Intel => "Intel",
+                    crate::monitor::GPUVendor::Unknown => "Unknown",
+                };
+                gpu_content.push(format!("   • {}", vendor_name));
+            }
+            gpu_content.push("".to_string());
+
+            // Show GPU information
+            if let Some(snapshot) = system_monitor.gpu_monitor.get_latest_snapshot() {
+                gpu_content.push(format!("📊 GPU Status ({} GPU(s) detected):", snapshot.gpus.len()));
+                gpu_content.push("".to_string());
+
+                for (i, gpu) in snapshot.gpus.iter().enumerate().take(5) {
+                    let vendor_icon = match gpu.vendor {
+                        crate::monitor::GPUVendor::NVIDIA => "🟢",
+                        crate::monitor::GPUVendor::AMD => "🔴", 
+                        crate::monitor::GPUVendor::Intel => "🔵",
+                        crate::monitor::GPUVendor::Unknown => "⚪",
+                    };
+                    
+                    gpu_content.push(format!("{} GPU {}: {}", vendor_icon, i, gpu.name));
+                    gpu_content.push(format!("   • Utilization: {:.1}%", gpu.utilization_gpu));
+                    
+                    if gpu.memory_total > 0 {
+                        let memory_used_mb = gpu.memory_used / (1024 * 1024);
+                        let memory_total_mb = gpu.memory_total / (1024 * 1024);
+                        let memory_percent = (gpu.memory_used as f64 / gpu.memory_total as f64) * 100.0;
+                        gpu_content.push(format!("   • Memory: {} MB / {} MB ({:.1}%)", 
+                            memory_used_mb, memory_total_mb, memory_percent));
+                    }
+                    
+                    if let Some(temp) = gpu.temperature {
+                        let temp_icon = if temp > 80.0 { "🔥" } else if temp > 70.0 { "🌡️" } else { "❄️" };
+                        gpu_content.push(format!("   • Temperature: {}{:.1}°C", temp_icon, temp));
+                    }
+                    
+                    if let Some(power) = gpu.power_usage {
+                        gpu_content.push(format!("   • Power: {:.1}W", power));
+                    }
+                    
+                    if !gpu.processes.is_empty() {
+                        gpu_content.push(format!("   • Active Processes: {}", gpu.processes.len()));
+                    }
+                    gpu_content.push("".to_string());
+                }
+
+                if snapshot.gpus.len() > 5 {
+                    gpu_content.push(format!("... and {} more GPUs", snapshot.gpus.len() - 5));
+                    gpu_content.push("".to_string());
+                }
+
+                // Show GPU process summary
+                let gpu_processes = system_monitor.gpu_monitor.get_gpu_processes();
+                if !gpu_processes.is_empty() {
+                    gpu_content.push("🔧 GPU Processes:".to_string());
+                    for process in gpu_processes.iter().take(5) {
+                        let memory_mb = process.memory_usage / (1024 * 1024);
+                        let process_type = match process.process_type {
+                            crate::monitor::GPUProcessType::Graphics => "Graphics",
+                            crate::monitor::GPUProcessType::Compute => "Compute",
+                            crate::monitor::GPUProcessType::Mixed => "Mixed",
+                            crate::monitor::GPUProcessType::Unknown => "Unknown",
+                        };
+                        gpu_content.push(format!("   • {} (PID: {}): {} MB ({})", 
+                            process.process_name, process.pid, memory_mb, process_type));
+                    }
+                    if gpu_processes.len() > 5 {
+                        gpu_content.push(format!("   ... and {} more processes", gpu_processes.len() - 5));
+                    }
+                } else {
+                    gpu_content.push("💤 No active GPU processes detected".to_string());
+                }
+            } else {
+                gpu_content.push("📊 Collecting GPU data...".to_string());
+                gpu_content.push("   • Please wait for initial GPU scan".to_string());
+            }
+        }
+
+        let gpu_widget = Paragraph::new(gpu_content.join("\n"))
+            .block(Block::default()
+                .title("GPU Monitoring")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(gpu_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press any key to return to dashboard")
             .style(Style::default().fg(self.theme_colors.warning))
             .alignment(Alignment::Center)
             .block(Block::default()

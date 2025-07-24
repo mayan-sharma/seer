@@ -70,7 +70,7 @@ async fn run_app(
             *last_update = Instant::now();
         }
 
-        terminal.draw(|f| app.render(f))?;
+        terminal.draw(|f| app.render(f, system_monitor))?;
 
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
@@ -104,6 +104,11 @@ async fn run_app(
                     KeyCode::Char('D') => app.toggle_process_details(),
                     KeyCode::Char('A') => app.toggle_process_affinity(),
                     KeyCode::Char('P') => app.toggle_performance_view(),
+                    KeyCode::Char('M') => app.toggle_memory_leak_view(),
+                    KeyCode::Char('I') => app.toggle_io_analysis_view(),
+                    KeyCode::Char('R') => app.toggle_thermal_view(),
+                    KeyCode::Char('N') => app.toggle_dependency_view(),
+                    KeyCode::Char('U') => app.toggle_gpu_monitor_view(),
                     KeyCode::Char('g') => app.cycle_group_by(),
                     KeyCode::Char('z') => app.toggle_zombie_highlighting(),
                     KeyCode::Char('h') | KeyCode::Char('?') => app.toggle_help(),
