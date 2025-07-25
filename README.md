@@ -20,6 +20,12 @@ A comprehensive CLI system monitoring tool built in Rust that provides real-time
   - CPU affinity viewing and management (Linux)
   - Resource limits monitoring and display
   - Process performance profiling with anomaly detection
+- **Security & Monitoring Enhancements**:
+  - **Security Dashboard**: Real-time security threat monitoring and suspicious process detection
+  - **Log Monitoring**: System log analysis with security pattern detection and alerts
+  - **Filesystem Monitoring**: Critical file and directory integrity monitoring with change detection
+  - **Behavioral Analysis**: Process behavior profiling and anomaly detection
+  - **Privilege Escalation Detection**: Monitor and alert on unauthorized privilege changes
 - **Multiple Themes**: 5 built-in color themes (Default, Dark, Gruvbox, Dracula, Solarized)
 - **Keyboard Navigation**: Intuitive controls for navigating data
 
@@ -106,6 +112,9 @@ seer -e json
 | `R` | Toggle thermal monitoring |
 | `N` | Toggle dependency analysis |
 | `U` | Toggle GPU monitoring |
+| `S` | Toggle security dashboard |
+| `L` | Toggle log monitoring view |
+| `F` | Toggle filesystem monitoring view |
 | `g` | Cycle process grouping mode |
 
 ## Configuration

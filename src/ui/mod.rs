@@ -2,7 +2,7 @@ pub mod dashboard;
 pub mod widgets;
 
 use crate::config::Config;
-use crate::monitor::{SystemMonitor, SystemMetrics, ExportFormat, Exporter, ProcessTreeBuilder, ProcessGroupBy, ProcessGroup, AffinityManager};
+use crate::monitor::{SystemMonitor, SystemMetrics, ExportFormat, Exporter, ProcessTreeBuilder, ProcessGroupBy, ProcessGroup, AffinityManager, AlertSeverity, LogAlertSeverity, LogLevel, FsEventSeverity, FsEventType};
 use anyhow::Result;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
@@ -31,6 +31,9 @@ pub enum AppView {
     MemoryLeakView,
     IOAnalysisView,
     GPUMonitorView,
+    SecurityDashboard,
+    LogMonitorView,
+    FileSystemMonitorView,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +151,9 @@ impl App {
             AppView::MemoryLeakView => self.render_memory_leak_view(f, system_monitor),
             AppView::IOAnalysisView => self.render_io_analysis_view(f, system_monitor),
             AppView::GPUMonitorView => self.render_gpu_monitor_view(f, system_monitor),
+            AppView::SecurityDashboard => self.render_security_dashboard(f, system_monitor),
+            AppView::LogMonitorView => self.render_log_monitor_view(f, system_monitor),
+            AppView::FileSystemMonitorView => self.render_filesystem_monitor_view(f, system_monitor),
         }
 
         if self.show_confirmation_dialog {
@@ -452,6 +458,27 @@ impl App {
         self.current_view = match self.current_view {
             AppView::ProcessTree => AppView::Dashboard,
             _ => AppView::ProcessTree,
+        };
+    }
+
+    pub fn toggle_security_dashboard(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::SecurityDashboard => AppView::Dashboard,
+            _ => AppView::SecurityDashboard,
+        };
+    }
+
+    pub fn toggle_log_monitor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::LogMonitorView => AppView::Dashboard,
+            _ => AppView::LogMonitorView,
+        };
+    }
+
+    pub fn toggle_filesystem_monitor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::FileSystemMonitorView => AppView::Dashboard,
+            _ => AppView::FileSystemMonitorView,
         };
     }
 
@@ -2219,6 +2246,260 @@ impl App {
 
         // Footer
         let footer = Paragraph::new("Press any key to return to dashboard")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_security_dashboard(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // Security data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("🔒 Security Dashboard")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Security content
+        let security_metrics = system_monitor.security_dashboard.get_security_metrics();
+        
+        let mut content = vec![
+            "🛡️ Security Monitoring Overview".to_string(),
+            "".to_string(),
+            format!("📊 Total Processes: {}", security_metrics.total_processes),
+            format!("⚠️  Suspicious Processes: {}", security_metrics.suspicious_processes),
+            format!("🔓 Privilege Escalations: {}", security_metrics.privilege_escalations),
+            format!("🌐 Network Anomalies: {}", security_metrics.network_anomalies),
+            format!("📁 File System Alerts: {}", security_metrics.file_system_alerts),
+            "".to_string(),
+        ];
+
+        // Show recent alerts
+        if !security_metrics.active_alerts.is_empty() {
+            content.push("🚨 Recent Security Alerts:".to_string());
+            content.push("".to_string());
+            
+            for alert in security_metrics.active_alerts.iter().take(10) {
+                let severity_icon = match alert.severity {
+                    AlertSeverity::Critical => "🔴",
+                    AlertSeverity::High => "🟠",
+                    AlertSeverity::Medium => "🟡",
+                    AlertSeverity::Low => "🟢",
+                };
+                content.push(format!("{} {}", severity_icon, alert.message));
+            }
+        } else {
+            content.push("✅ No active security alerts".to_string());
+        }
+
+        let security_widget = Paragraph::new(content.join("\n"))
+            .block(Block::default()
+                .title("Security Dashboard")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(security_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press 'S' to return to dashboard | 'L' for logs | 'F' for filesystem")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_log_monitor_view(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // Log data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("📋 Log Monitor")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Log content
+        let recent_logs = system_monitor.log_monitor.get_recent_entries(20);
+        let alerts = system_monitor.log_monitor.get_alerts();
+        
+        let mut content = vec![
+            "📄 System Log Monitoring".to_string(),
+            "".to_string(),
+        ];
+
+        // Show log alerts first
+        if !alerts.is_empty() {
+            content.push("🚨 Security Log Alerts:".to_string());
+            content.push("".to_string());
+            
+            for alert in alerts.iter().take(5) {
+                let severity_icon = match alert.severity {
+                    LogAlertSeverity::Critical => "🔴",
+                    LogAlertSeverity::High => "🟠",
+                    LogAlertSeverity::Medium => "🟡",
+                    LogAlertSeverity::Low => "🟢",
+                };
+                content.push(format!("{} {}: {}", severity_icon, alert.log_source, alert.message));
+            }
+            content.push("".to_string());
+        }
+
+        // Show recent log entries
+        content.push("📝 Recent Log Entries:".to_string());
+        content.push("".to_string());
+        
+        if recent_logs.is_empty() {
+            content.push("📭 No recent log entries available".to_string());
+            content.push("💡 Ensure log files are accessible and monitoring is enabled".to_string());
+        } else {
+            for log_entry in recent_logs.iter().take(15) {
+                let level_icon = match log_entry.level {
+                    LogLevel::Emergency | LogLevel::Alert | LogLevel::Critical => "🔴",
+                    LogLevel::Error => "🟠",
+                    LogLevel::Warning => "🟡",
+                    LogLevel::Notice | LogLevel::Info => "🔵",
+                    LogLevel::Debug => "⚪",
+                };
+                let timestamp = log_entry.timestamp.format("%H:%M:%S");
+                content.push(format!("{} [{}] {}", level_icon, timestamp, log_entry.message));
+            }
+        }
+
+        let log_widget = Paragraph::new(content.join("\n"))
+            .block(Block::default()
+                .title("Log Monitor")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(log_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press 'L' to return to dashboard | 'S' for security | 'F' for filesystem")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_filesystem_monitor_view(&self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),   // Header
+                Constraint::Min(15),     // Filesystem data
+                Constraint::Length(3),   // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("📁 Filesystem Monitor")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Filesystem content
+        let fs_events = system_monitor.filesystem_monitor.get_recent_events(15);
+        let fs_alerts = system_monitor.filesystem_monitor.get_alerts();
+        
+        let mut content = vec![
+            "🗂️ Filesystem Security Monitoring".to_string(),
+            "".to_string(),
+        ];
+
+        // Show filesystem alerts first
+        if !fs_alerts.is_empty() {
+            content.push("🚨 Filesystem Security Alerts:".to_string());
+            content.push("".to_string());
+            
+            for alert in fs_alerts.iter().take(5) {
+                let severity_icon = match alert.severity {
+                    FsEventSeverity::Critical => "🔴",
+                    FsEventSeverity::High => "🟠",
+                    FsEventSeverity::Medium => "🟡",
+                    FsEventSeverity::Low => "🟢",
+                };
+                content.push(format!("{} {}: {:?}", severity_icon, alert.message, alert.affected_path));
+            }
+            content.push("".to_string());
+        }
+
+        // Show recent filesystem events
+        content.push("📂 Recent Filesystem Events:".to_string());
+        content.push("".to_string());
+        
+        if fs_events.is_empty() {
+            content.push("📭 No recent filesystem events".to_string());
+            content.push("💡 Filesystem monitoring active for critical directories".to_string());
+        } else {
+            for event in fs_events.iter().take(12) {
+                let event_icon = match event.event_type {
+                    FsEventType::FileCreated => "📄",
+                    FsEventType::FileModified => "✏️",
+                    FsEventType::FileDeleted => "🗑️",
+                    FsEventType::FileAccessed => "👁️",
+                    FsEventType::PermissionChanged => "🔒",
+                    FsEventType::OwnershipChanged => "👤",
+                    FsEventType::DirectoryCreated => "📁",
+                    FsEventType::DirectoryDeleted => "🗂️",
+                    FsEventType::SymlinkCreated => "🔗",
+                    FsEventType::IntegrityViolation => "⚠️",
+                };
+                let timestamp = event.timestamp.format("%H:%M:%S");
+                content.push(format!("{} [{}] {:?}: {:?}", event_icon, timestamp, event.event_type, event.path));
+            }
+        }
+
+        let fs_widget = Paragraph::new(content.join("\n"))
+            .block(Block::default()
+                .title("Filesystem Monitor")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(fs_widget, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press 'F' to return to dashboard | 'S' for security | 'L' for logs")
             .style(Style::default().fg(self.theme_colors.warning))
             .alignment(Alignment::Center)
             .block(Block::default()

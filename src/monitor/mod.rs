@@ -13,6 +13,9 @@ pub mod dependencies;
 pub mod memory_leak;
 pub mod io_analysis;
 pub mod gpu;
+pub mod security;
+pub mod log_monitor;
+pub mod filesystem_monitor;
 
 use anyhow::Result;
 use sysinfo::{System, Networks, Disks};
@@ -35,6 +38,9 @@ pub use dependencies::*;
 pub use memory_leak::*;
 pub use io_analysis::*;
 pub use gpu::*;
+pub use security::*;
+pub use log_monitor::*;
+pub use filesystem_monitor::*;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SystemMetrics {
@@ -85,6 +91,9 @@ pub struct SystemMonitor {
     pub memory_leak_detector: MemoryLeakDetector,
     pub io_bottleneck_analyzer: IOBottleneckAnalyzer,
     pub gpu_monitor: GPUMonitor,
+    pub security_dashboard: SecurityDashboard,
+    pub log_monitor: LogMonitor,
+    pub filesystem_monitor: FileSystemMonitor,
 }
 
 impl SystemMonitor {
@@ -104,6 +113,9 @@ impl SystemMonitor {
             memory_leak_detector: MemoryLeakDetector::new(),
             io_bottleneck_analyzer: IOBottleneckAnalyzer::new(),
             gpu_monitor: GPUMonitor::new(),
+            security_dashboard: SecurityDashboard::new(),
+            log_monitor: LogMonitor::with_default_config(),
+            filesystem_monitor: FileSystemMonitor::with_default_config(),
         }
     }
 
@@ -131,6 +143,21 @@ impl SystemMonitor {
         // Update GPU monitoring
         if let Err(e) = self.gpu_monitor.update_gpu_metrics() {
             eprintln!("GPU monitoring error: {}", e);
+        }
+        
+        // Update security monitoring
+        if let Err(e) = self.security_dashboard.update_security_analysis(&processes) {
+            eprintln!("Security analysis error: {}", e);
+        }
+        
+        // Update log monitoring
+        if let Err(e) = self.log_monitor.update().await {
+            eprintln!("Log monitoring error: {}", e);
+        }
+        
+        // Update filesystem monitoring
+        if let Err(e) = self.filesystem_monitor.update().await {
+            eprintln!("Filesystem monitoring error: {}", e);
         }
         
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
