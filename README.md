@@ -115,6 +115,10 @@ seer -e json
 | `S` | Toggle security dashboard |
 | `L` | Toggle log monitoring view |
 | `F` | Toggle filesystem monitoring view |
+| `C` | Toggle container monitoring view |
+| `V` | Toggle service monitoring view |
+| `X` | Toggle user session monitoring view |
+| `W` | Toggle hardware sensor monitoring view |
 | `g` | Cycle process grouping mode |
 
 ## Configuration

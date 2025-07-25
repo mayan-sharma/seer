@@ -7,7 +7,7 @@ use anyhow::Result;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, Paragraph, BorderType},
+    widgets::{Block, Borders, Clear, Paragraph, BorderType, Row, Cell, Table},
     Frame,
 };
 
@@ -34,6 +34,10 @@ pub enum AppView {
     SecurityDashboard,
     LogMonitorView,
     FileSystemMonitorView,
+    ContainerView,
+    ServiceView,
+    SessionView,
+    HardwareSensorView,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +158,10 @@ impl App {
             AppView::SecurityDashboard => self.render_security_dashboard(f, system_monitor),
             AppView::LogMonitorView => self.render_log_monitor_view(f, system_monitor),
             AppView::FileSystemMonitorView => self.render_filesystem_monitor_view(f, system_monitor),
+            AppView::ContainerView => self.render_container_view(f, system_monitor),
+            AppView::ServiceView => self.render_service_view(f, system_monitor),
+            AppView::SessionView => self.render_session_view(f, system_monitor),
+            AppView::HardwareSensorView => self.render_hardware_sensor_view(f, system_monitor),
         }
 
         if self.show_confirmation_dialog {
@@ -479,6 +487,34 @@ impl App {
         self.current_view = match self.current_view {
             AppView::FileSystemMonitorView => AppView::Dashboard,
             _ => AppView::FileSystemMonitorView,
+        };
+    }
+
+    pub fn toggle_container_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::ContainerView => AppView::Dashboard,
+            _ => AppView::ContainerView,
+        };
+    }
+
+    pub fn toggle_service_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::ServiceView => AppView::Dashboard,
+            _ => AppView::ServiceView,
+        };
+    }
+
+    pub fn toggle_session_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::SessionView => AppView::Dashboard,
+            _ => AppView::SessionView,
+        };
+    }
+
+    pub fn toggle_hardware_sensor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::HardwareSensorView => AppView::Dashboard,
+            _ => AppView::HardwareSensorView,
         };
     }
 
@@ -2507,6 +2543,529 @@ impl App {
                 .border_type(BorderType::Rounded)
                 .style(Style::default().fg(self.theme_colors.border)));
         f.render_widget(footer, chunks[2]);
+    }
+
+    fn render_container_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Header
+                Constraint::Length(6),  // Stats
+                Constraint::Min(10),    // Container list
+                Constraint::Length(3),  // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("🐳 Container Monitor")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Stats
+        if let Ok(metrics) = system_monitor.container_monitor.get_container_metrics() {
+            let stats_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                ])
+                .split(chunks[1]);
+
+            let total_containers = Paragraph::new(format!("Total\n{}", metrics.total_containers))
+                .style(Style::default().fg(self.theme_colors.info))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(total_containers, stats_chunks[0]);
+
+            let running_containers = Paragraph::new(format!("Running\n{}", metrics.running_containers))
+                .style(Style::default().fg(self.theme_colors.success))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(running_containers, stats_chunks[1]);
+
+            let stopped_containers = Paragraph::new(format!("Stopped\n{}", metrics.stopped_containers))
+                .style(Style::default().fg(self.theme_colors.warning))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(stopped_containers, stats_chunks[2]);
+
+            let images_count = Paragraph::new(format!("Images\n{}", metrics.images_count))
+                .style(Style::default().fg(self.theme_colors.accent))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(images_count, stats_chunks[3]);
+
+            let memory_usage = Paragraph::new(format!("Memory\n{}", crate::monitor::SystemMonitor::format_bytes(metrics.total_memory_usage)))
+                .style(Style::default().fg(self.theme_colors.primary))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(memory_usage, stats_chunks[4]);
+
+            // Container list
+            let headers = Row::new(vec!["Name", "Image", "Status", "CPU%", "Memory", "Network I/O"]);
+            let mut rows = Vec::new();
+
+            for container in &metrics.containers {
+                let status_color = match container.status {
+                    crate::monitor::ContainerStatus::Running => self.theme_colors.success,
+                    crate::monitor::ContainerStatus::Exited => self.theme_colors.muted,
+                    crate::monitor::ContainerStatus::Dead => self.theme_colors.error,
+                    _ => self.theme_colors.foreground,
+                };
+
+                let network_io = format!("↓{} ↑{}", 
+                    crate::monitor::SystemMonitor::format_bytes(container.network_rx),
+                    crate::monitor::SystemMonitor::format_bytes(container.network_tx));
+
+                rows.push(Row::new(vec![
+                    Cell::from(container.name.clone()),
+                    Cell::from(container.image.clone()),
+                    Cell::from(format!("{:?}", container.status)).style(Style::default().fg(status_color)),
+                    Cell::from(format!("{:.1}%", container.cpu_usage)),
+                    Cell::from(crate::monitor::SystemMonitor::format_bytes(container.memory_usage)),
+                    Cell::from(network_io),
+                ]));
+            }
+
+            let table = Table::new(rows)
+            .widths(&[
+                Constraint::Percentage(20),
+                Constraint::Percentage(25),
+                Constraint::Percentage(15),
+                Constraint::Percentage(10),
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+            ])
+            .header(headers.style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD)))
+            .block(Block::default()
+                .title("Containers")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground));
+
+            f.render_widget(table, chunks[2]);
+        }
+
+        // Footer
+        let footer = Paragraph::new("Press 'C' to return to dashboard | '↑/↓' to navigate")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[3]);
+    }
+
+    fn render_service_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Header
+                Constraint::Length(6),  // Stats
+                Constraint::Min(10),    // Service list
+                Constraint::Length(3),  // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("⚙️ Service Monitor")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Stats and Service list
+        if let Ok(metrics) = system_monitor.service_monitor.get_service_metrics() {
+            let stats_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                ])
+                .split(chunks[1]);
+
+            let total_services = Paragraph::new(format!("Total\n{}", metrics.total_services))
+                .style(Style::default().fg(self.theme_colors.info))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(total_services, stats_chunks[0]);
+
+            let active_services = Paragraph::new(format!("Active\n{}", metrics.active_services))
+                .style(Style::default().fg(self.theme_colors.success))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(active_services, stats_chunks[1]);
+
+            let failed_services = Paragraph::new(format!("Failed\n{}", metrics.failed_services))
+                .style(Style::default().fg(self.theme_colors.error))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(failed_services, stats_chunks[2]);
+
+            let enabled_services = Paragraph::new(format!("Enabled\n{}", metrics.enabled_services))
+                .style(Style::default().fg(self.theme_colors.accent))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(enabled_services, stats_chunks[3]);
+
+            let memory_usage = Paragraph::new(format!("Memory\n{}", crate::monitor::SystemMonitor::format_bytes(metrics.total_memory_usage)))
+                .style(Style::default().fg(self.theme_colors.primary))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(memory_usage, stats_chunks[4]);
+
+            // Service list
+            let headers = Row::new(vec!["Service", "Status", "State", "CPU%", "Memory", "Restarts"]);
+            let mut rows = Vec::new();
+
+            for service in &metrics.services {
+                let status_color = match service.status {
+                    crate::monitor::ServiceStatus::Active => self.theme_colors.success,
+                    crate::monitor::ServiceStatus::Inactive => self.theme_colors.muted,
+                    crate::monitor::ServiceStatus::Failed => self.theme_colors.error,
+                    crate::monitor::ServiceStatus::Activating => self.theme_colors.warning,
+                    _ => self.theme_colors.foreground,
+                };
+
+                let state_color = match service.state {
+                    crate::monitor::ServiceState::Enabled => self.theme_colors.success,
+                    crate::monitor::ServiceState::Disabled => self.theme_colors.muted,
+                    crate::monitor::ServiceState::Masked => self.theme_colors.error,
+                    _ => self.theme_colors.foreground,
+                };
+
+                rows.push(Row::new(vec![
+                    Cell::from(service.name.clone()),
+                    Cell::from(format!("{:?}", service.status)).style(Style::default().fg(status_color)),
+                    Cell::from(format!("{:?}", service.state)).style(Style::default().fg(state_color)),
+                    Cell::from(format!("{:.1}%", service.cpu_usage)),
+                    Cell::from(crate::monitor::SystemMonitor::format_bytes(service.memory_usage)),
+                    Cell::from(service.restart_count.to_string()),
+                ]));
+            }
+
+            let table = Table::new(rows)
+            .widths(&[
+                Constraint::Percentage(25),
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+                Constraint::Percentage(10),
+                Constraint::Percentage(15),
+                Constraint::Percentage(10),
+            ])
+            .header(headers.style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD)))
+            .block(Block::default()
+                .title("Services")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground));
+
+            f.render_widget(table, chunks[2]);
+        }
+
+        // Footer
+        let footer = Paragraph::new("Press 'V' to return to dashboard | '↑/↓' to navigate")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[3]);
+    }
+
+    fn render_session_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Header
+                Constraint::Length(6),  // Stats
+                Constraint::Min(10),    // Session list
+                Constraint::Length(3),  // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("👥 Session Monitor")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Stats and Session list
+        if let Ok(metrics) = system_monitor.session_monitor.get_session_metrics() {
+            let stats_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                ])
+                .split(chunks[1]);
+
+            let total_sessions = Paragraph::new(format!("Total\n{}", metrics.total_sessions))
+                .style(Style::default().fg(self.theme_colors.info))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(total_sessions, stats_chunks[0]);
+
+            let active_sessions = Paragraph::new(format!("Active\n{}", metrics.active_sessions))
+                .style(Style::default().fg(self.theme_colors.success))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(active_sessions, stats_chunks[1]);
+
+            let unique_users = Paragraph::new(format!("Users\n{}", metrics.unique_users))
+                .style(Style::default().fg(self.theme_colors.accent))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(unique_users, stats_chunks[2]);
+
+            let ssh_sessions = Paragraph::new(format!("SSH\n{}", metrics.ssh_sessions))
+                .style(Style::default().fg(self.theme_colors.warning))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(ssh_sessions, stats_chunks[3]);
+
+            let memory_usage = Paragraph::new(format!("Memory\n{}", crate::monitor::SystemMonitor::format_bytes(metrics.total_memory_usage)))
+                .style(Style::default().fg(self.theme_colors.primary))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(memory_usage, stats_chunks[4]);
+
+            // Session list
+            let headers = Row::new(vec!["User", "Type", "State", "TTY", "Login Time", "Idle"]);
+            let mut rows = Vec::new();
+
+            for session in &metrics.sessions {
+                let state_color = match session.state {
+                    crate::monitor::SessionState::Active => self.theme_colors.success,
+                    crate::monitor::SessionState::Online => self.theme_colors.info,
+                    crate::monitor::SessionState::Closing => self.theme_colors.warning,
+                    _ => self.theme_colors.foreground,
+                };
+
+                let type_color = match session.session_type {
+                    crate::monitor::SessionType::SSH => self.theme_colors.warning,
+                    crate::monitor::SessionType::X11 | crate::monitor::SessionType::Wayland => self.theme_colors.accent,
+                    _ => self.theme_colors.foreground,
+                };
+
+                let idle_time = if let Some(idle) = session.idle_time {
+                    if idle < 60 {
+                        format!("{}s", idle)
+                    } else if idle < 3600 {
+                        format!("{}m", idle / 60)
+                    } else {
+                        format!("{}h", idle / 3600)
+                    }
+                } else {
+                    "-".to_string()
+                };
+
+                rows.push(Row::new(vec![
+                    Cell::from(session.user.clone()),
+                    Cell::from(format!("{:?}", session.session_type)).style(Style::default().fg(type_color)),
+                    Cell::from(format!("{:?}", session.state)).style(Style::default().fg(state_color)),
+                    Cell::from(session.tty.as_deref().unwrap_or("-")),
+                    Cell::from(session.login_time.format("%H:%M").to_string()),
+                    Cell::from(idle_time),
+                ]));
+            }
+
+            let table = Table::new(rows)
+            .widths(&[
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+            ])
+            .header(headers.style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD)))
+            .block(Block::default()
+                .title("User Sessions")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground));
+
+            f.render_widget(table, chunks[2]);
+        }
+
+        // Footer
+        let footer = Paragraph::new("Press 'X' to return to dashboard | '↑/↓' to navigate")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[3]);
+    }
+
+    fn render_hardware_sensor_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Header
+                Constraint::Length(6),  // Stats
+                Constraint::Min(10),    // Sensor list
+                Constraint::Length(3),  // Footer
+            ])
+            .split(f.size());
+
+        // Header
+        let header = Paragraph::new("🌡️ Hardware Sensors")
+            .style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(header, chunks[0]);
+
+        // Stats and Sensor list
+        if let Ok(metrics) = system_monitor.hardware_sensor_monitor.get_hardware_sensor_metrics() {
+            let stats_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(20),
+                ])
+                .split(chunks[1]);
+
+            let total_sensors = Paragraph::new(format!("Total\n{}", metrics.total_sensors))
+                .style(Style::default().fg(self.theme_colors.info))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(total_sensors, stats_chunks[0]);
+
+            let temp_sensors = Paragraph::new(format!("Temp\n{}", metrics.temperature_sensors.len()))
+                .style(Style::default().fg(self.theme_colors.error))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(temp_sensors, stats_chunks[1]);
+
+            let fan_sensors = Paragraph::new(format!("Fans\n{}", metrics.fan_sensors.len()))
+                .style(Style::default().fg(self.theme_colors.accent))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(fan_sensors, stats_chunks[2]);
+
+            let critical_alerts = Paragraph::new(format!("Alerts\n{}", metrics.critical_alerts.len()))
+                .style(Style::default().fg(
+                    if metrics.critical_alerts.is_empty() { self.theme_colors.success } else { self.theme_colors.error }
+                ))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(critical_alerts, stats_chunks[3]);
+
+            let avg_temp = if let Some(temp) = metrics.average_cpu_temp {
+                format!("CPU Temp\n{:.1}°C", temp)
+            } else {
+                "CPU Temp\nN/A".to_string()
+            };
+            let avg_temp_widget = Paragraph::new(avg_temp)
+                .style(Style::default().fg(self.theme_colors.primary))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+            f.render_widget(avg_temp_widget, stats_chunks[4]);
+
+            // Sensor list
+            let headers = Row::new(vec!["Sensor", "Type", "Value", "Status", "Chip", "Min/Max"]);
+            let mut rows = Vec::new();
+
+            for sensor in &metrics.sensors {
+                let status_color = match sensor.status {
+                    crate::monitor::SensorStatus::Normal => self.theme_colors.success,
+                    crate::monitor::SensorStatus::Warning => self.theme_colors.warning,
+                    crate::monitor::SensorStatus::Critical => self.theme_colors.error,
+                    crate::monitor::SensorStatus::Fault => self.theme_colors.error,
+                    _ => self.theme_colors.foreground,
+                };
+
+                let type_icon = match sensor.sensor_type {
+                    crate::monitor::SensorType::Temperature => "🌡️",
+                    crate::monitor::SensorType::Fan => "🌀",
+                    crate::monitor::SensorType::Voltage => "⚡",
+                    crate::monitor::SensorType::Power => "🔋",
+                    crate::monitor::SensorType::Current => "⚡",
+                    _ => "📊",
+                };
+
+                let min_max = if let (Some(min), Some(max)) = (sensor.min_value, sensor.max_value) {
+                    format!("{:.1}/{:.1}", min, max)
+                } else if let Some(crit) = sensor.critical_value {
+                    format!("crit: {:.1}", crit)
+                } else {
+                    "-".to_string()
+                };
+
+                rows.push(Row::new(vec![
+                    Cell::from(sensor.label.clone()),
+                    Cell::from(format!("{} {:?}", type_icon, sensor.sensor_type)),
+                    Cell::from(format!("{:.1} {}", sensor.current_value, sensor.unit)),
+                    Cell::from(format!("{:?}", sensor.status)).style(Style::default().fg(status_color)),
+                    Cell::from(sensor.chip.clone()),
+                    Cell::from(min_max),
+                ]));
+            }
+
+            let table = Table::new(rows)
+            .widths(&[
+                Constraint::Percentage(20),
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+                Constraint::Percentage(15),
+                Constraint::Percentage(20),
+            ])
+            .header(headers.style(Style::default().fg(self.theme_colors.primary).add_modifier(Modifier::BOLD)))
+            .block(Block::default()
+                .title("Hardware Sensors")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)))
+            .style(Style::default().fg(self.theme_colors.foreground));
+
+            f.render_widget(table, chunks[2]);
+        }
+
+        // Footer
+        let footer = Paragraph::new("Press 'W' to return to dashboard | '↑/↓' to navigate")
+            .style(Style::default().fg(self.theme_colors.warning))
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(self.theme_colors.border)));
+        f.render_widget(footer, chunks[3]);
     }
 }
 

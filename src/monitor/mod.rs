@@ -16,6 +16,10 @@ pub mod gpu;
 pub mod security;
 pub mod log_monitor;
 pub mod filesystem_monitor;
+pub mod containers;
+pub mod services;
+pub mod sessions;
+pub mod hardware_sensors;
 
 use anyhow::Result;
 use sysinfo::{System, Networks, Disks};
@@ -41,6 +45,10 @@ pub use gpu::*;
 pub use security::*;
 pub use log_monitor::*;
 pub use filesystem_monitor::*;
+pub use containers::*;
+pub use services::*;
+pub use sessions::*;
+pub use hardware_sensors::*;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SystemMetrics {
@@ -94,6 +102,10 @@ pub struct SystemMonitor {
     pub security_dashboard: SecurityDashboard,
     pub log_monitor: LogMonitor,
     pub filesystem_monitor: FileSystemMonitor,
+    pub container_monitor: ContainerMonitor,
+    pub service_monitor: ServiceMonitor,
+    pub session_monitor: SessionMonitor,
+    pub hardware_sensor_monitor: HardwareSensorMonitor,
 }
 
 impl SystemMonitor {
@@ -116,6 +128,10 @@ impl SystemMonitor {
             security_dashboard: SecurityDashboard::new(),
             log_monitor: LogMonitor::with_default_config(),
             filesystem_monitor: FileSystemMonitor::with_default_config(),
+            container_monitor: ContainerMonitor::new(),
+            service_monitor: ServiceMonitor::new(),
+            session_monitor: SessionMonitor::new(),
+            hardware_sensor_monitor: HardwareSensorMonitor::new(),
         }
     }
 
