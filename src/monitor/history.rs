@@ -58,7 +58,11 @@ impl HistoryManager {
         self.history.push_back(historical_metrics);
     }
 
-    pub fn get_history(&self) -> Vec<HistoricalMetrics> {
+    pub fn get_history(&self) -> &VecDeque<HistoricalMetrics> {
+        &self.history
+    }
+
+    pub fn get_history_vec(&self) -> Vec<HistoricalMetrics> {
         self.history.iter().cloned().collect()
     }
 

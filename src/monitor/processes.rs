@@ -154,11 +154,11 @@ impl SystemMonitor {
                 process_count: processes.len(),
             }],
             ProcessGroupBy::User => {
-                let mut groups: HashMap<String, Vec<ProcessInfo>> = HashMap::new();
+                let mut groups: HashMap<&str, Vec<&ProcessInfo>> = HashMap::new();
                 for process in processes {
-                    groups.entry(process.user.clone()).or_default().push(process.clone());
+                    groups.entry(&process.user).or_default().push(process);
                 }
-                Self::create_process_groups(groups)
+                Self::create_process_groups_ref(groups)
             },
             ProcessGroupBy::Parent => {
                 let mut groups: HashMap<String, Vec<ProcessInfo>> = HashMap::new();
@@ -200,6 +200,29 @@ impl SystemMonitor {
                 ProcessGroup {
                     name,
                     processes,
+                    total_cpu,
+                    total_memory,
+                    process_count,
+                }
+            })
+            .collect();
+        
+        // Sort groups by total CPU usage (descending)
+        result.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
+        result
+    }
+
+    fn create_process_groups_ref(groups: HashMap<&str, Vec<&ProcessInfo>>) -> Vec<ProcessGroup> {
+        let mut result: Vec<ProcessGroup> = groups
+            .into_iter()
+            .map(|(name, processes)| {
+                let total_cpu = processes.iter().map(|p| p.cpu_usage).sum();
+                let total_memory = processes.iter().map(|p| p.memory_usage).sum();
+                let process_count = processes.len();
+                
+                ProcessGroup {
+                    name: name.to_owned(),
+                    processes: processes.into_iter().cloned().collect(),
                     total_cpu,
                     total_memory,
                     process_count,

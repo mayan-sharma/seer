@@ -141,9 +141,7 @@ impl SystemMonitor {
 
     pub async fn update(&mut self) -> Result<()> {
         self.system.refresh_all();
-        self.networks.refresh_list();
         self.networks.refresh();
-        self.disks.refresh_list();
         self.disks.refresh();
         self.update_network_data();
         
@@ -180,7 +178,7 @@ impl SystemMonitor {
             eprintln!("Filesystem monitoring error: {}", e);
         }
         
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::task::yield_now().await;
         Ok(())
     }
 
@@ -282,10 +280,14 @@ impl SystemMonitor {
             unit_index += 1;
         }
 
+        let mut result = String::with_capacity(16);
         if unit_index == 0 {
-            format!("{} {}", bytes, UNITS[unit_index])
+            use std::fmt::Write;
+            write!(&mut result, "{} {}", bytes, UNITS[unit_index]).unwrap();
         } else {
-            format!("{:.1} {}", size, UNITS[unit_index])
+            use std::fmt::Write;
+            write!(&mut result, "{:.1} {}", size, UNITS[unit_index]).unwrap();
         }
+        result
     }
 }

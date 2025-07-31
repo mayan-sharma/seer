@@ -72,7 +72,7 @@ async fn run_app(
 
         terminal.draw(|f| app.render(f, system_monitor))?;
 
-        if event::poll(Duration::from_millis(50))? {
+        if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
                 // Clear error message on any key press
                 if app.error_message.is_some() {
@@ -167,6 +167,6 @@ async fn run_app(
             }
         }
 
-        sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(16)).await;
     }
 }

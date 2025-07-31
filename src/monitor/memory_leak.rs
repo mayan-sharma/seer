@@ -142,7 +142,7 @@ impl MemoryLeakDetector {
     }
 
     fn analyze_process_for_leaks(&mut self, process: &ProcessInfo) -> Result<()> {
-        // Clone the history to avoid borrow checker issues
+        // Clone the history to avoid borrow checker issues, but only if needed
         let history = if let Some(history) = self.process_memory_history.get(&process.pid) {
             if history.len() < self.detection_settings.min_samples_for_detection {
                 return Ok(());
@@ -152,7 +152,7 @@ impl MemoryLeakDetector {
             return Ok(());
         };
 
-        let mut alerts = Vec::new();
+        let mut alerts = Vec::with_capacity(4);
 
         // Check for steady growth
         if let Some(alert) = self.detect_steady_growth(process, &history)? {
