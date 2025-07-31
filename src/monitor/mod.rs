@@ -20,6 +20,10 @@ pub mod containers;
 pub mod services;
 pub mod sessions;
 pub mod hardware_sensors;
+pub mod database;
+pub mod apm;
+pub mod iot;
+pub mod backup;
 
 use anyhow::Result;
 use sysinfo::{System, Networks, Disks};
@@ -47,6 +51,10 @@ pub use containers::*;
 pub use services::*;
 pub use sessions::*;
 pub use hardware_sensors::*;
+pub use database::*;
+pub use apm::*;
+pub use iot::*;
+pub use backup::*;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SystemMetrics {
@@ -104,6 +112,10 @@ pub struct SystemMonitor {
     pub service_monitor: ServiceMonitor,
     pub session_monitor: SessionMonitor,
     pub hardware_sensor_monitor: HardwareSensorMonitor,
+    pub database_monitor: DatabaseMonitor,
+    pub apm_monitor: APMMonitor,
+    pub iot_monitor: IoTMonitor,
+    pub backup_monitor: BackupMonitor,
 }
 
 impl Default for SystemMonitor {
@@ -136,6 +148,10 @@ impl SystemMonitor {
             service_monitor: ServiceMonitor::new(),
             session_monitor: SessionMonitor::new(),
             hardware_sensor_monitor: HardwareSensorMonitor::new(),
+            database_monitor: DatabaseMonitor::with_default_config(),
+            apm_monitor: APMMonitor::new(),
+            iot_monitor: IoTMonitor::with_default_config(),
+            backup_monitor: BackupMonitor::with_default_config(),
         }
     }
 
@@ -176,6 +192,26 @@ impl SystemMonitor {
         // Update filesystem monitoring
         if let Err(e) = self.filesystem_monitor.update().await {
             eprintln!("Filesystem monitoring error: {}", e);
+        }
+        
+        // Update database monitoring
+        if let Err(e) = self.database_monitor.update_metrics().await {
+            eprintln!("Database monitoring error: {}", e);
+        }
+        
+        // Update APM monitoring
+        if let Err(e) = self.apm_monitor.update_metrics(&processes).await {
+            eprintln!("APM monitoring error: {}", e);
+        }
+        
+        // Update IoT monitoring
+        if let Err(e) = self.iot_monitor.update_metrics().await {
+            eprintln!("IoT monitoring error: {}", e);
+        }
+        
+        // Update backup monitoring
+        if let Err(e) = self.backup_monitor.update_metrics().await {
+            eprintln!("Backup monitoring error: {}", e);
         }
         
         tokio::task::yield_now().await;

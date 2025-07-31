@@ -116,6 +116,23 @@ async fn run_app(
                     KeyCode::Char('V') => app.toggle_service_view(),
                     KeyCode::Char('X') => app.toggle_session_view(),
                     KeyCode::Char('W') => app.toggle_hardware_sensor_view(),
+                    // Advanced Monitoring Domains
+                    KeyCode::Char('J') => app.toggle_database_monitor_view(),
+                    KeyCode::Char('Y') => app.toggle_apm_monitor_view(),
+                    KeyCode::Char('O') => app.toggle_iot_monitor_view(),
+                    KeyCode::Char('B') => app.toggle_backup_monitor_view(),
+                    KeyCode::Tab => app.next_advanced_tab(),
+                    KeyCode::BackTab => app.previous_advanced_tab(),
+                    KeyCode::Left => {
+                        if app.is_in_advanced_monitoring_view() {
+                            app.previous_advanced_tab();
+                        }
+                    },
+                    KeyCode::Right => {
+                        if app.is_in_advanced_monitoring_view() {
+                            app.next_advanced_tab();
+                        }
+                    },
                     KeyCode::Char('g') => app.cycle_group_by(),
                     KeyCode::Char('z') => app.toggle_zombie_highlighting(),
                     KeyCode::Char('h') | KeyCode::Char('?') => app.toggle_help(),

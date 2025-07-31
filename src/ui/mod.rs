@@ -12,6 +12,7 @@ use ratatui::{
 };
 
 pub use dashboard::*;
+pub use widgets::{AdvancedMonitoringView, AdvancedTab};
 
 #[derive(Debug, Clone)]
 pub enum AppView {
@@ -38,6 +39,10 @@ pub enum AppView {
     ServiceView,
     SessionView,
     HardwareSensorView,
+    DatabaseMonitorView,
+    APMMonitorView,
+    IoTMonitorView,
+    BackupMonitorView,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +100,7 @@ pub struct App {
     cached_sort_by: Option<SortBy>,
     cached_group_by: Option<ProcessGroupBy>,
     pub selected_process_pid: Option<u32>,
+    pub advanced_monitoring_view: AdvancedMonitoringView,
 }
 
 impl App {
@@ -124,6 +130,7 @@ impl App {
             cached_sort_by: None,
             cached_group_by: None,
             selected_process_pid: None,
+            advanced_monitoring_view: AdvancedMonitoringView::new(),
         }
     }
 
@@ -162,6 +169,10 @@ impl App {
             AppView::ServiceView => self.render_service_view(f, system_monitor),
             AppView::SessionView => self.render_session_view(f, system_monitor),
             AppView::HardwareSensorView => self.render_hardware_sensor_view(f, system_monitor),
+            AppView::DatabaseMonitorView => self.render_database_monitor_view(f, system_monitor),
+            AppView::APMMonitorView => self.render_apm_monitor_view(f, system_monitor),
+            AppView::IoTMonitorView => self.render_iot_monitor_view(f, system_monitor),
+            AppView::BackupMonitorView => self.render_backup_monitor_view(f, system_monitor),
         }
 
         if self.show_confirmation_dialog {
@@ -518,6 +529,64 @@ impl App {
         };
     }
 
+    // Advanced Monitoring Domain Toggle Methods
+    pub fn toggle_database_monitor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::DatabaseMonitorView => AppView::Dashboard,
+            _ => AppView::DatabaseMonitorView,
+        };
+    }
+
+    pub fn toggle_apm_monitor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::APMMonitorView => AppView::Dashboard,
+            _ => AppView::APMMonitorView,
+        };
+    }
+
+    pub fn toggle_iot_monitor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::IoTMonitorView => AppView::Dashboard,
+            _ => AppView::IoTMonitorView,
+        };
+    }
+
+    pub fn toggle_backup_monitor_view(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::BackupMonitorView => AppView::Dashboard,
+            _ => AppView::BackupMonitorView,
+        };
+    }
+
+    pub fn is_in_advanced_monitoring_view(&self) -> bool {
+        matches!(self.current_view, 
+            AppView::DatabaseMonitorView | 
+            AppView::APMMonitorView | 
+            AppView::IoTMonitorView | 
+            AppView::BackupMonitorView
+        )
+    }
+
+    pub fn next_advanced_tab(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::DatabaseMonitorView => AppView::APMMonitorView,
+            AppView::APMMonitorView => AppView::IoTMonitorView,
+            AppView::IoTMonitorView => AppView::BackupMonitorView,
+            AppView::BackupMonitorView => AppView::DatabaseMonitorView,
+            _ => AppView::DatabaseMonitorView, // Switch to advanced monitoring if not already there
+        };
+    }
+
+    pub fn previous_advanced_tab(&mut self) {
+        self.current_view = match self.current_view {
+            AppView::DatabaseMonitorView => AppView::BackupMonitorView,
+            AppView::APMMonitorView => AppView::DatabaseMonitorView,
+            AppView::IoTMonitorView => AppView::APMMonitorView,
+            AppView::BackupMonitorView => AppView::IoTMonitorView,
+            _ => AppView::DatabaseMonitorView, // Switch to advanced monitoring if not already there
+        };
+    }
+
     pub fn export_current_data(&mut self, format: &str) -> Result<()> {
         if let Some(metrics) = &self.system_metrics {
             let export_format = ExportFormat::parse_format(format)?;
@@ -736,24 +805,41 @@ impl App {
             "  r            Manually refresh data",
             "  t            Cycle through color themes",
             "",
-            "Views:",
+            "System Views:",
             "  p            Toggle process list view",
             "  T            Toggle process tree view",
             "  G            Toggle process groups view",
             "  D            Toggle process details view",
-            "  A            Toggle process affinity view",
-            "  P            Toggle performance analysis view",
             "  n            Toggle network view",
             "  d            Toggle disk view",
             "  i            Toggle system info view",
             "  H            Toggle history view",
             "",
-            "Advanced Analysis:",
+            "Advanced Monitoring Domains:",
+            "  Tab          Navigate advanced monitoring tabs",
+            "  ← →          Switch between Database/APM/IoT/Backup tabs",
+            "  B            Toggle backup & recovery monitoring",
+            "  O            Toggle IoT device monitoring",
+            "  J            Toggle database monitoring",
+            "  Y            Toggle APM (Application Performance)",
+            "",
+            "System Analysis & Performance:",
+            "  A            Toggle process affinity view",
+            "  P            Toggle performance analysis view",
             "  M            Toggle memory leak detection",
             "  I            Toggle I/O bottleneck analysis",
             "  R            Toggle thermal monitoring",
             "  N            Toggle dependency analysis",
             "  U            Toggle GPU monitoring",
+            "",
+            "Security & Monitoring:",
+            "  S            Toggle security dashboard",
+            "  L            Toggle log monitoring view",
+            "  F            Toggle filesystem monitoring view",
+            "  C            Toggle container monitoring view",
+            "  V            Toggle service monitoring view",
+            "  X            Toggle user session monitoring view",
+            "  W            Toggle hardware sensor monitoring view",
             "",
             "Process Management:",
             "  ↑/↓          Navigate process list/groups",
@@ -770,20 +856,51 @@ impl App {
             "  e            Export current system data (JSON)",
             "  E            Export historical data (CSV)",
             "",
-            "Enhanced Features:",
-            "  • Process grouping by user/parent/application",
+            "Database Monitoring Features (when enabled):",
+            "  • MySQL: Connection metrics, query performance, InnoDB stats",
+            "  • PostgreSQL: Database stats, cache hit ratios, lock metrics",
+            "  • MongoDB: Operations metrics, memory usage, replication",
+            "  • Redis: Memory metrics, keyspace stats, persistence info",
+            "",
+            "Application Performance Monitoring (APM):",
+            "  • JVM: Heap memory, GC metrics, thread monitoring",
+            "  • .NET: Managed memory, GC pressure, exception tracking",
+            "  • Python: Memory usage, thread counts, module tracking",
+            "  • Node.js: V8 heap, event loop lag, handle monitoring",
+            "  • Go: Heap allocation, GC cycles, goroutine tracking",
+            "  • Automatic anomaly detection & performance alerts",
+            "",
+            "IoT Device Monitoring:",
+            "  • Device discovery: ARP scan, UPnP, mDNS, Bluetooth",
+            "  • Protocol support: WiFi, Bluetooth, Zigbee, MQTT, CoAP",
+            "  • Health monitoring: Connectivity, battery, temperature",
+            "  • Smart device classification & management",
+            "",
+            "Backup & Recovery Monitoring:",
+            "  • Job discovery: Rsync, cron jobs, systemd services",
+            "  • Storage monitoring: Capacity, accessibility, performance",
+            "  • Success rate tracking & retention policy monitoring",
+            "  • Recovery point management & integrity verification",
+            "",
+            "Enhanced System Features:",
+            "  • Process grouping by user/parent/application/status",
             "  • CPU affinity management (Linux)",
-            "  • Resource limits monitoring",
-            "  • Performance profiling & anomaly detection",
+            "  • Resource limits monitoring & alerts",
+            "  • Real-time performance profiling",
             "  • Process tree visualization",
-            "  • Real-time system monitoring",
-            "  • Historical data tracking",
-            "  • Multiple color themes",
-            "  • CPU temperature monitoring",
-            "  • Memory leak detection with trend analysis",
-            "  • I/O bottleneck analysis and IOPS monitoring",
-            "  • Process dependency mapping",
-            "  • GPU monitoring (NVIDIA/AMD/Intel)",
+            "  • Historical data tracking (24+ hours)",
+            "  • Multiple color themes (5 built-in)",
+            "  • Temperature monitoring & thermal management",
+            "  • Comprehensive security analysis",
+            "  • Container & service monitoring",
+            "  • Hardware sensor integration",
+            "",
+            "Configuration:",
+            "  Config file: ~/.config/seer/config.toml",
+            "  Enable/disable individual monitoring domains",
+            "  Database connection settings",
+            "  IoT network discovery ranges",
+            "  Backup monitoring paths",
             "",
             "Press any key to close this help screen",
         ];
@@ -3066,6 +3183,27 @@ impl App {
                 .border_type(BorderType::Rounded)
                 .style(Style::default().fg(self.theme_colors.border)));
         f.render_widget(footer, chunks[3]);
+    }
+
+    // Advanced Monitoring Domain Render Methods
+    fn render_database_monitor_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        self.advanced_monitoring_view.current_tab = AdvancedTab::Database;
+        self.advanced_monitoring_view.render(f, f.size(), system_monitor);
+    }
+
+    fn render_apm_monitor_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        self.advanced_monitoring_view.current_tab = AdvancedTab::APM;
+        self.advanced_monitoring_view.render(f, f.size(), system_monitor);
+    }
+
+    fn render_iot_monitor_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        self.advanced_monitoring_view.current_tab = AdvancedTab::IoT;
+        self.advanced_monitoring_view.render(f, f.size(), system_monitor);
+    }
+
+    fn render_backup_monitor_view(&mut self, f: &mut Frame, system_monitor: &mut SystemMonitor) {
+        self.advanced_monitoring_view.current_tab = AdvancedTab::Backup;
+        self.advanced_monitoring_view.render(f, f.size(), system_monitor);
     }
 }
 
