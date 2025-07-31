@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -303,6 +303,7 @@ impl ContainerMonitor {
             #[serde(rename = "Created")]
             created: i64,
             #[serde(rename = "Ports")]
+            #[allow(dead_code)]
             ports: Option<Vec<serde_json::Value>>,
             #[serde(rename = "Labels")]
             labels: Option<HashMap<String, String>>,

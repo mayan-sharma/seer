@@ -2,8 +2,6 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncBufReadExt;
@@ -201,7 +199,7 @@ impl LogMonitor {
         }
 
         // Update file position
-        self.file_positions.insert(file_path.to_string(), (current_pos + new_entries.len() as u64));
+        self.file_positions.insert(file_path.to_string(), current_pos + new_entries.len() as u64);
 
         // Add new entries to our collection
         self.log_entries.extend(new_entries);

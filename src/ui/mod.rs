@@ -520,7 +520,7 @@ impl App {
 
     pub fn export_current_data(&mut self, format: &str) -> Result<()> {
         if let Some(metrics) = &self.system_metrics {
-            let export_format = ExportFormat::from_str(format)?;
+            let export_format = ExportFormat::parse_format(format)?;
             let filename = Exporter::generate_default_filename(&export_format);
             
             let result = Exporter::export_current_metrics(
@@ -537,7 +537,7 @@ impl App {
     }
 
     pub fn export_historical_data(&mut self, format: &str, system_monitor: &mut SystemMonitor) -> Result<()> {
-        let export_format = ExportFormat::from_str(format)?;
+        let export_format = ExportFormat::parse_format(format)?;
         let filename = format!("seer_history_{}.{}", 
             chrono::Utc::now().format("%Y%m%d_%H%M%S"), 
             export_format.extension());
@@ -1835,7 +1835,7 @@ impl App {
                     
                     // Show critical processes (high dependency impact)
                     let mut critical_processes = Vec::new();
-                    for (pid, _) in &graph.processes {
+                    for pid in graph.processes.keys() {
                         let impact = system_monitor.dependency_analyzer.get_dependency_impact(*pid, &graph);
                         if impact > 3 {
                             critical_processes.push((*pid, impact));

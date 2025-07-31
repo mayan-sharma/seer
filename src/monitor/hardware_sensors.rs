@@ -36,11 +36,12 @@ pub enum SensorType {
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum SensorStatus {
     Normal,
     Warning,
     Critical,
+    #[default]
     Unknown,
     Fault,
 }
@@ -78,11 +79,6 @@ pub struct HardwareSensorMonitor {
     history_limit: usize,
 }
 
-impl Default for SensorStatus {
-    fn default() -> Self {
-        SensorStatus::Unknown
-    }
-}
 
 impl From<&str> for SensorType {
     fn from(sensor_type: &str) -> Self {
@@ -97,6 +93,12 @@ impl From<&str> for SensorType {
             "intrusion" => SensorType::Intrusion,
             _ => SensorType::Unknown,
         }
+    }
+}
+
+impl Default for HardwareSensorMonitor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -255,7 +257,7 @@ impl HardwareSensorMonitor {
         let mut sensors = Vec::new();
         
         let output = Command::new("sensors")
-            .args(&["-A", "-u"]) // All sensors, raw output
+            .args(["-A", "-u"]) // All sensors, raw output
             .output()?;
 
         if !output.status.success() {
@@ -442,7 +444,7 @@ impl HardwareSensorMonitor {
         let mut sensors = Vec::new();
         
         let output = Command::new("ipmitool")
-            .args(&["sensor"])
+            .args(["sensor"])
             .output()?;
 
         if !output.status.success() {
@@ -521,7 +523,7 @@ impl HardwareSensorMonitor {
             "W".to_string()
         } else if value_str.contains(" A") {
             "A".to_string()
-        } else if value_str.contains("%") {
+        } else if value_str.contains('%') {
             "%".to_string()
         } else {
             "".to_string()
@@ -587,7 +589,7 @@ impl HardwareSensorMonitor {
     fn read_hwmon_threshold(&self, hwmon_path: &str, sensor_base: &str, threshold_type: &str, sensor_type: &SensorType) -> Option<f64> {
         let threshold_path = format!("{}/_{}_{}", hwmon_path, sensor_base, threshold_type);
         
-        if let Ok(value_str) = fs::read_to_string(&threshold_path) {
+        if let Ok(value_str) = fs::read_to_string(threshold_path) {
             if let Ok(raw_value) = value_str.trim().parse::<f64>() {
                 let (value, _) = self.convert_hwmon_value(raw_value, sensor_type);
                 return Some(value);

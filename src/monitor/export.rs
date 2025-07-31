@@ -31,7 +31,7 @@ pub enum ExportFormat {
 }
 
 impl ExportFormat {
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn parse_format(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "json" => Ok(ExportFormat::Json),
             "csv" => Ok(ExportFormat::Csv),
@@ -299,12 +299,12 @@ mod tests {
 
     #[test]
     fn test_export_format_from_str() {
-        assert!(matches!(ExportFormat::from_str("json").unwrap(), ExportFormat::Json));
-        assert!(matches!(ExportFormat::from_str("JSON").unwrap(), ExportFormat::Json));
-        assert!(matches!(ExportFormat::from_str("csv").unwrap(), ExportFormat::Csv));
-        assert!(matches!(ExportFormat::from_str("toml").unwrap(), ExportFormat::Toml));
+        assert!(matches!(ExportFormat::parse_format("json").unwrap(), ExportFormat::Json));
+        assert!(matches!(ExportFormat::parse_format("JSON").unwrap(), ExportFormat::Json));
+        assert!(matches!(ExportFormat::parse_format("csv").unwrap(), ExportFormat::Csv));
+        assert!(matches!(ExportFormat::parse_format("toml").unwrap(), ExportFormat::Toml));
         
-        assert!(ExportFormat::from_str("invalid").is_err());
+        assert!(ExportFormat::parse_format("invalid").is_err());
     }
 
     #[test]

@@ -25,14 +25,12 @@ use anyhow::Result;
 use sysinfo::{System, Networks, Disks};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
-use history::HistoryManager;
-
 pub use system::*;
 pub use processes::*;
 pub use network::*;
 pub use storage::*;
-pub use history::*;
-pub use export::*;
+pub use history::{HistoryManager, *};
+pub use export::{ExportFormat, ExportData, Exporter};
 pub use process_tree::*;
 pub use affinity::*;
 pub use limits::*;
@@ -106,6 +104,12 @@ pub struct SystemMonitor {
     pub service_monitor: ServiceMonitor,
     pub session_monitor: SessionMonitor,
     pub hardware_sensor_monitor: HardwareSensorMonitor,
+}
+
+impl Default for SystemMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SystemMonitor {

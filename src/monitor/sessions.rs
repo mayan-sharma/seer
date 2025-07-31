@@ -593,7 +593,7 @@ impl SessionMonitor {
         match self.session_manager {
             SessionManager::Systemd => {
                 let output = Command::new("loginctl")
-                    .args(&["kill-user", username])
+                    .args(["kill-user", username])
                     .output()?;
                 
                 if !output.status.success() {
@@ -609,6 +609,7 @@ impl SessionMonitor {
 
 #[derive(Debug)]
 struct UserInfo {
+    #[allow(dead_code)]
     username: String,
     uid: u32,
     gid: u32,
